@@ -1,0 +1,406 @@
+import React, { useMemo, useState } from 'react';
+import { ArrowRight, ClipboardList, Plus, Search, UserPlus, X } from 'lucide-react';
+import { normalizeArabic } from '../mockData';
+
+const STORAGE_KEY = 'military_folder_personnel_records_v1';
+
+export const PERSONNEL_RECORD_FOLDER_IDS = [
+  'file_sareya_1',
+  'file_sareya_2',
+  'file_sareya_3',
+  'file_sareya_4',
+  'file_maqar',
+  'file_movements',
+  'file_intel',
+  'file_alamal',
+] as const;
+
+export const isPersonnelRecordsFolder = (folderId: string): boolean =>
+  PERSONNEL_RECORD_FOLDER_IDS.includes(folderId as (typeof PERSONNEL_RECORD_FOLDER_IDS)[number]);
+
+interface FolderPersonnelRecord {
+  id: string;
+  folderId: string;
+  militaryNumber: string;
+  fullName: string;
+  motherName: string;
+  birthDate: string;
+  qiCardNumber: string;
+  nationalCardNumber: string;
+  createdAt: string;
+}
+
+type FolderPersonnelStore = Record<string, FolderPersonnelRecord[]>;
+
+interface RecordFormState {
+  militaryNumber: string;
+  fullName: string;
+  motherName: string;
+  birthDate: string;
+  qiCardNumber: string;
+  nationalCardNumber: string;
+}
+
+interface FolderPersonnelRecordsProps {
+  folderId: string;
+  folderName: string;
+  folderLabel: string;
+  isDarkMode: boolean;
+  onBack: () => void;
+  onShowToast: (type: 'success' | 'info' | 'warning', title: string, message: string) => void;
+}
+
+const EMPTY_FORM: RecordFormState = {
+  militaryNumber: '',
+  fullName: '',
+  motherName: '',
+  birthDate: '',
+  qiCardNumber: '',
+  nationalCardNumber: '',
+};
+
+const readStore = (): FolderPersonnelStore => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}');
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+const readFolderRecords = (folderId: string): FolderPersonnelRecord[] => {
+  const records = readStore()[folderId];
+  return Array.isArray(records) ? records : [];
+};
+
+export const getStoredPersonnelFolderCount = (folderId: string): number => readFolderRecords(folderId).length;
+
+const normalizeSearchValue = (value: string): string => normalizeArabic(value).toLocaleLowerCase('ar-IQ').trim();
+
+export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
+  folderId,
+  folderName,
+  folderLabel,
+  isDarkMode,
+  onBack,
+  onShowToast,
+}) => {
+  const [records, setRecords] = useState<FolderPersonnelRecord[]>(() => readFolderRecords(folderId));
+  const [query, setQuery] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [form, setForm] = useState<RecordFormState>(EMPTY_FORM);
+
+  const filteredRecords = useMemo(() => {
+    const normalizedQuery = normalizeSearchValue(query);
+    if (!normalizedQuery) return records;
+
+    return records.filter((record) =>
+      [
+        record.militaryNumber,
+        record.fullName,
+        record.motherName,
+        record.birthDate,
+        record.qiCardNumber,
+        record.nationalCardNumber,
+      ].some((value) => normalizeSearchValue(value).includes(normalizedQuery)),
+    );
+  }, [query, records]);
+
+  const inputStyle = {
+    backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+    borderColor: isDarkMode ? '#3e3e3e' : '#cbd5e1',
+    color: isDarkMode ? '#ffffff' : '#0f172a',
+  };
+
+  const updateForm = (field: keyof RecordFormState, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const closeForm = () => {
+    setForm(EMPTY_FORM);
+    setShowForm(false);
+  };
+
+  const saveRecord = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!form.militaryNumber.trim() || !form.fullName.trim()) {
+      onShowToast('warning', 'حقول مطلوبة', 'أدخل الرقم العسكري والاسم الرباعي واللقب.');
+      return;
+    }
+
+    const newRecord: FolderPersonnelRecord = {
+      id: globalThis.crypto?.randomUUID?.() || `record_${Date.now()}`,
+      folderId,
+      militaryNumber: form.militaryNumber.trim(),
+      fullName: form.fullName.trim(),
+      motherName: form.motherName.trim(),
+      birthDate: form.birthDate.trim(),
+      qiCardNumber: form.qiCardNumber.trim(),
+      nationalCardNumber: form.nationalCardNumber.trim(),
+      createdAt: new Date().toISOString(),
+    };
+
+    const nextRecords = [...records, newRecord];
+    const store = readStore();
+    store[folderId] = nextRecords;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+    setRecords(nextRecords);
+    closeForm();
+    onShowToast('success', 'تمت إضافة المنتسب', `حُفظ السجل داخل ${folderName}.`);
+  };
+
+  return (
+    <div className="flex-1 flex flex-col w-full h-full min-h-[560px]">
+      <div
+        className="flex flex-col gap-4 p-4 rounded-2xl border mb-4"
+        style={{
+          backgroundColor: isDarkMode ? '#242424' : '#f8fafc',
+          borderColor: isDarkMode ? '#383838' : '#e2e8f0',
+        }}
+      >
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onBack}
+              className="px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer transition-colors"
+              style={{
+                backgroundColor: isDarkMode ? '#333333' : '#e2e8f0',
+                color: isDarkMode ? '#ffffff' : '#1e293b',
+              }}
+              title="الرجوع إلى ملفات الفوج"
+            >
+              <ArrowRight className="w-4 h-4" />
+              <span>رجوع إلى ملفات الفوج</span>
+            </button>
+
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] px-2 py-0.5 rounded-lg font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  {folderLabel}
+                </span>
+                <span className="text-[10px] text-neutral-400">{records.length} سجل</span>
+              </div>
+              <h3 className="text-lg font-bold" style={{ color: isDarkMode ? '#ffffff' : '#0f172a' }}>
+                سجلات منتسبي {folderName}
+              </h3>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setShowForm((current) => !current)}
+            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+            aria-expanded={showForm}
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>إضافة منتسب</span>
+          </button>
+        </div>
+
+        <div className="relative w-full">
+          <Search className="absolute right-3 top-2.5 w-4 h-4 text-neutral-500" />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="ابحث بالرقم العسكري أو الاسم أو أي رقم بطاقة..."
+            aria-label="بحث في سجلات المنتسبين"
+            className="w-full py-2 pr-10 pl-10 rounded-xl text-xs border focus:outline-hidden transition-all text-right"
+            style={inputStyle}
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="absolute left-3 top-2.5 text-neutral-400 hover:text-white cursor-pointer"
+              aria-label="مسح البحث"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showForm && (
+        <form
+          onSubmit={saveRecord}
+          className="p-4 rounded-2xl border mb-4"
+          style={{
+            backgroundColor: isDarkMode ? '#202020' : '#ffffff',
+            borderColor: isDarkMode ? '#3b4252' : '#cbd5e1',
+          }}
+        >
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span className="p-2 rounded-lg bg-emerald-500/10 text-emerald-400">
+                <Plus className="w-4 h-4" />
+              </span>
+              <h4 className="text-sm font-bold">إضافة سجل منتسب جديد</h4>
+            </div>
+            <button type="button" onClick={closeForm} className="text-neutral-400 hover:text-white cursor-pointer" aria-label="إغلاق نموذج الإضافة">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            <label className="text-[11px] font-bold text-neutral-300">
+              الرقم العسكري <span className="text-red-400">*</span>
+              <input
+                value={form.militaryNumber}
+                onChange={(event) => updateForm('militaryNumber', event.target.value)}
+                placeholder="أدخل الرقم العسكري"
+                inputMode="numeric"
+                required
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300 sm:col-span-2">
+              الاسم الرباعي واللقب <span className="text-red-400">*</span>
+              <input
+                value={form.fullName}
+                onChange={(event) => updateForm('fullName', event.target.value)}
+                placeholder="أدخل الاسم الرباعي واللقب"
+                required
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300">
+              اسم الأم
+              <input
+                value={form.motherName}
+                onChange={(event) => updateForm('motherName', event.target.value)}
+                placeholder="أدخل اسم الأم"
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300">
+              التولد
+              <input
+                value={form.birthDate}
+                onChange={(event) => updateForm('birthDate', event.target.value)}
+                placeholder="مثال: 24/3/1967"
+                inputMode="numeric"
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300">
+              رقم الكي كارد الجديد
+              <input
+                value={form.qiCardNumber}
+                onChange={(event) => updateForm('qiCardNumber', event.target.value)}
+                placeholder="أدخل رقم الكي كارد"
+                inputMode="numeric"
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300">
+              رقم البطاقة الموحدة
+              <input
+                value={form.nationalCardNumber}
+                onChange={(event) => updateForm('nationalCardNumber', event.target.value)}
+                placeholder="أدخل رقم البطاقة الموحدة"
+                inputMode="numeric"
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2 mt-4">
+            <button type="submit" className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 cursor-pointer">
+              حفظ السجل
+            </button>
+            <button
+              type="button"
+              onClick={closeForm}
+              className="px-5 py-2.5 rounded-xl text-xs font-bold cursor-pointer"
+              style={{ backgroundColor: isDarkMode ? '#333333' : '#e2e8f0', color: isDarkMode ? '#ffffff' : '#1e293b' }}
+            >
+              إلغاء
+            </button>
+          </div>
+        </form>
+      )}
+
+      <div
+        className="flex-1 min-h-[330px] rounded-2xl border overflow-hidden"
+        style={{
+          backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff',
+          borderColor: isDarkMode ? '#343434' : '#e2e8f0',
+        }}
+      >
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[1100px] text-right border-collapse">
+            <thead>
+              <tr style={{ backgroundColor: isDarkMode ? '#2b2b2b' : '#f1f5f9' }}>
+                {['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'اسم الأم', 'التولد', 'رقم الكي كارد الجديد', 'رقم البطاقة الموحدة'].map((heading) => (
+                  <th
+                    key={heading}
+                    className="px-4 py-3 text-[11px] font-bold border-b whitespace-nowrap"
+                    style={{ borderColor: isDarkMode ? '#3d3d3d' : '#cbd5e1', color: isDarkMode ? '#f8fafc' : '#1e293b' }}
+                  >
+                    {heading}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {filteredRecords.map((record, index) => (
+                <tr key={record.id} className="hover:bg-blue-500/5 transition-colors">
+                  {[
+                    String(index + 1),
+                    record.militaryNumber,
+                    record.fullName,
+                    record.motherName || '—',
+                    record.birthDate || '—',
+                    record.qiCardNumber || '—',
+                    record.nationalCardNumber || '—',
+                  ].map((value, cellIndex) => (
+                    <td
+                      key={`${record.id}-${cellIndex}`}
+                      className="px-4 py-3 text-[11px] border-b whitespace-nowrap"
+                      style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0', color: isDarkMode ? '#e5e7eb' : '#334155' }}
+                    >
+                      {value}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {filteredRecords.length === 0 && (
+          <div className="min-h-[280px] flex flex-col items-center justify-center text-center p-8">
+            <span className="w-14 h-14 rounded-2xl bg-blue-500/10 text-blue-400 flex items-center justify-center mb-3">
+              <ClipboardList className="w-7 h-7" />
+            </span>
+            <h4 className="text-sm font-bold mb-1">
+              {query ? 'لا توجد نتائج مطابقة' : `لا توجد سجلات في ${folderName}`}
+            </h4>
+            <p className="text-xs text-neutral-400 mb-3">
+              {query ? 'جرّب البحث باسم أو رقم مختلف.' : 'اضغط على زر إضافة منتسب لإدخال أول سجل.'}
+            </p>
+            {!query && (
+              <button type="button" onClick={() => setShowForm(true)} className="text-xs font-bold text-blue-400 hover:underline cursor-pointer">
+                إضافة أول سجل
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 py-3 text-[11px] text-neutral-400">
+        <span>{filteredRecords.length} سجل ظاهر</span>
+        {query && <span>من أصل {records.length} سجل</span>}
+      </div>
+    </div>
+  );
+};

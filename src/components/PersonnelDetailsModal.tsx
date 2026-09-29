@@ -1,0 +1,553 @@
+import React, { useState, useEffect } from 'react';
+import {
+  X,
+  User,
+  FileBadge,
+  Home,
+  Users,
+  Shield,
+  Edit3,
+  Save,
+  CheckCircle2,
+  Trash2,
+  AlertTriangle,
+  UserPlus
+} from 'lucide-react';
+import type { MilitaryRecord } from '../types';
+import { TAB_SCHEMA, TOTAL_PERSONNEL_FIELDS, getFullDetailsForRecord } from '../mockData';
+
+interface PersonnelDetailsModalProps {
+  isOpen: boolean;
+  record: MilitaryRecord | null;
+  isAddMode?: boolean;
+  onClose: () => void;
+  onSave: (updatedRecord: MilitaryRecord, updatedFields: Record<string, string>, isAdd: boolean) => void;
+  onDelete?: (record: MilitaryRecord) => void;
+  isDarkMode: boolean;
+  colorTheme: string;
+}
+
+type TabKey = 'personal' | 'documents' | 'residence' | 'social' | 'military';
+
+export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
+  isOpen,
+  record,
+  isAddMode = false,
+  onClose,
+  onSave,
+  onDelete,
+  isDarkMode,
+  colorTheme,
+}) => {
+  const [activeTab, setActiveTab] = useState<TabKey>('personal');
+  const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
+  const [showSaveConfirm, setShowSaveConfirm] = useState<boolean>(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+  const [isModified, setIsModified] = useState<boolean>(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (isAddMode) {
+        // Initialize empty fields for Add Mode
+        const emptyFields: Record<string, string> = {};
+        Object.values(TAB_SCHEMA).forEach((tab) => {
+          tab.fields.forEach((f) => {
+            emptyFields[f.key] = '';
+          });
+        });
+        setFieldValues(emptyFields);
+        setActiveTab('personal');
+        setIsModified(false);
+        setShowSaveConfirm(false);
+        setShowDeleteConfirm(false);
+        setValidationError(null);
+      } else if (record) {
+        const full = getFullDetailsForRecord(record);
+        setFieldValues(full);
+        setActiveTab('personal');
+        setIsModified(false);
+        setShowSaveConfirm(false);
+        setShowDeleteConfirm(false);
+        setValidationError(null);
+      }
+    }
+  }, [isOpen, record, isAddMode]);
+
+  if (!isOpen) return null;
+
+  const handleFieldChange = (key: string, value: string) => {
+    setFieldValues((prev) => ({
+      ...prev,
+      [key]: value,
+    }));
+    setIsModified(true);
+    if (validationError) setValidationError(null);
+  };
+
+  const themeColors: Record<string, { activeTab: string; tabBg: string }> = {
+    blue: {
+      activeTab: isDarkMode ? '#1f538d' : '#3b8ed0',
+      tabBg: isDarkMode ? '#2b2b2b' : '#dbdbdb',
+    },
+    green: {
+      activeTab: isDarkMode ? '#2fa572' : '#2cc985',
+      tabBg: isDarkMode ? '#2b2b2b' : '#dbdbdb',
+    },
+    'dark-blue': {
+      activeTab: isDarkMode ? '#144870' : '#1f538d',
+      tabBg: isDarkMode ? '#2b2b2b' : '#dbdbdb',
+    },
+  };
+
+  const currentTheme = themeColors[colorTheme] || themeColors.blue;
+
+  const tabList: { key: TabKey; label: string; icon: React.ReactNode; count: number }[] = [
+    { key: 'personal', label: TAB_SCHEMA.personal.label, icon: <User className="w-4 h-4" />, count: TAB_SCHEMA.personal.fields.length },
+    { key: 'documents', label: TAB_SCHEMA.documents.label, icon: <FileBadge className="w-4 h-4" />, count: TAB_SCHEMA.documents.fields.length },
+    { key: 'residence', label: TAB_SCHEMA.residence.label, icon: <Home className="w-4 h-4" />, count: TAB_SCHEMA.residence.fields.length },
+    { key: 'social', label: TAB_SCHEMA.social.label, icon: <Users className="w-4 h-4" />, count: TAB_SCHEMA.social.fields.length },
+    { key: 'military', label: TAB_SCHEMA.military.label, icon: <Shield className="w-4 h-4" />, count: TAB_SCHEMA.military.fields.length },
+  ];
+
+  const currentTabConfig = TAB_SCHEMA[activeTab];
+
+  // Initiate save action
+  const handleInitiateSave = () => {
+    const name = fieldValues['الاسم الرباعي واللقب']?.trim();
+    if (isAddMode && !name) {
+      setValidationError("يرجى إدخال 'الاسم الرباعي واللقب' على الأقل لإضافة المنتسب الجديد.");
+      setActiveTab('personal');
+      return;
+    }
+    setShowSaveConfirm(true);
+  };
+
+  // Finalize save (updates parent memory, table, and closes)
+  const handleConfirmSave = () => {
+    const updatedRecord: MilitaryRecord = {
+      seq: isAddMode ? 0 : Number(fieldValues['ت']) || (record ? record.seq : 0),
+      military_id: fieldValues['الرقم العسكري'] || (record ? record.military_id : 'سجل جديد'),
+      fullname: fieldValues['الاسم الرباعي واللقب'] || (record ? record.fullname : 'منتسب جديد'),
+      position: fieldValues['المنصب'] || fieldValues['الصفة'] || (record ? record.position : '-'),
+      phone: fieldValues['رقم الهاتف'] || (record ? record.phone : '-'),
+      details: fieldValues,
+    };
+
+    setShowSaveConfirm(false);
+    onSave(updatedRecord, fieldValues, isAddMode);
+    onClose();
+  };
+
+  // Finalize delete
+  const handleConfirmDelete = () => {
+    if (record && onDelete) {
+      setShowDeleteConfirm(false);
+      onDelete(record);
+      onClose();
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-200">
+      {/* CTkToplevel Window Simulation */}
+      <div
+        className="w-full max-w-5xl max-h-[92vh] rounded-2xl shadow-2xl overflow-hidden border flex flex-col font-sans transition-colors duration-200 relative"
+        style={{
+          backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff',
+          borderColor: isDarkMode ? '#383838' : '#d4d4d4',
+        }}
+      >
+        {/* OS / CTkToplevel Window Title Bar */}
+        <div
+          className="flex items-center justify-between px-5 py-3 select-none border-b transition-colors"
+          style={{
+            backgroundColor: isDarkMode ? '#292929' : '#f0f2f5',
+            borderColor: isDarkMode ? '#383838' : '#e0e0e0',
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className="text-xs font-bold flex items-center gap-2"
+              style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
+            >
+              <span className={`w-2.5 h-2.5 rounded-full ${isAddMode ? 'bg-blue-500' : 'bg-emerald-500'} inline-block animate-pulse`}></span>
+              {isAddMode
+                ? 'إضافة منتسب جديد إلى قاعدة البيانات — CTkToplevel (CustomTkinter)'
+                : 'تفاصيل وتعديل ملف المنتسب — CTkToplevel (CustomTkinter)'}
+            </span>
+            <span
+              className="text-xs font-mono px-2 py-0.5 rounded"
+              style={{
+                backgroundColor: isDarkMode ? '#141414' : '#e5e7eb',
+                color: isDarkMode ? '#93c5fd' : '#1d4ed8',
+              }}
+            >
+              {isAddMode ? 'وضع الإضافة (تسلسل تلقائي)' : `الرقم العسكري: ${fieldValues['الرقم العسكري'] || (record ? record.military_id : '-')}`}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-neutral-400">إجمالي الحقول: {TOTAL_PERSONNEL_FIELDS} حقلاً</span>
+            <button
+              onClick={onClose}
+              className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
+              title="إغلاق النافذة"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+
+        {/* Modal Subheader / Personnel Identity Card */}
+        <div
+          className="px-6 py-3.5 border-b flex flex-wrap items-center justify-between gap-4 transition-colors"
+          style={{
+            backgroundColor: isDarkMode ? '#242424' : '#fafafa',
+            borderColor: isDarkMode ? '#333333' : '#eeeeee',
+          }}
+        >
+          <div className="flex items-center gap-3.5 text-right">
+            <div
+              className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg text-white shadow-xs shrink-0"
+              style={{ backgroundColor: isAddMode ? '#2563eb' : currentTheme.activeTab }}
+            >
+              {isAddMode ? <UserPlus className="w-5 h-5 text-white" /> : (fieldValues['الاسم الرباعي واللقب'] || (record ? record.fullname : 'م')).charAt(0) || 'م'}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2
+                  className="text-base font-bold tracking-tight"
+                  style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
+                >
+                  {isAddMode ? 'تسجيل وإضافة منتسب جديد' : (fieldValues['الاسم الرباعي واللقب'] || (record ? record.fullname : 'منتسب'))}
+                </h2>
+                {!isAddMode && record && (
+                  <span className="text-xs font-mono text-emerald-400">
+                    (ت: {fieldValues['ت'] || record.seq})
+                  </span>
+                )}
+                {isModified && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-400 font-semibold border border-amber-500/30">
+                    تعديلات غير محفوظة
+                  </span>
+                )}
+              </div>
+              <p
+                className="text-xs leading-relaxed"
+                style={{ color: isDarkMode ? '#9ca3af' : '#4b5563' }}
+              >
+                {isAddMode
+                  ? 'املأ البيانات عبر التبويبات الخمسة. سيتم تخصيص أعلى رقم تسلسلي (ت) تلقائياً عند الحفظ.'
+                  : `${fieldValues['المنصب'] || fieldValues['الصفة'] || (record ? record.position : '')} · ${fieldValues['رقم الهاتف'] || (record ? record.phone : '')}`}
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-mono"
+              style={{
+                backgroundColor: isDarkMode ? '#1a1a1a' : '#ffffff',
+                borderColor: isDarkMode ? '#333333' : '#e5e7eb',
+                color: isDarkMode ? '#d1d5db' : '#374151',
+              }}
+            >
+              <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+              <span>{isAddMode ? 'جاهز لإدخال البيانات الكاملة' : 'جاهز للتعديل والحفظ أو الحذف'}</span>
+            </span>
+          </div>
+        </div>
+
+        {/* Validation Error Banner */}
+        {validationError && (
+          <div className="px-6 py-2 bg-red-500/10 border-b border-red-500/30 text-red-400 text-xs flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 shrink-0" />
+              <span>{validationError}</span>
+            </div>
+            <button onClick={() => setValidationError(null)} className="text-red-400 hover:text-white">
+              ✕
+            </button>
+          </div>
+        )}
+
+        {/* CTkTabview Container */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Tab Headers Segmented Bar (CTkTabview Header) */}
+          <div
+            className="px-6 pt-3 pb-2 border-b flex items-center gap-1.5 overflow-x-auto select-none transition-colors"
+            style={{
+              backgroundColor: isDarkMode ? '#1e1e1e' : '#f5f5f5',
+              borderColor: isDarkMode ? '#333333' : '#e5e5e5',
+            }}
+          >
+            {tabList.map((tab) => {
+              const isActive = activeTab === tab.key;
+              return (
+                <button
+                  key={tab.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all duration-150 whitespace-nowrap cursor-pointer"
+                  style={{
+                    backgroundColor: isActive ? currentTheme.activeTab : 'transparent',
+                    color: isActive ? '#ffffff' : isDarkMode ? '#9ca3af' : '#4b5563',
+                  }}
+                  onMouseEnter={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.backgroundColor = isDarkMode ? '#2d2d2d' : '#e5e7eb';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (!isActive) {
+                      e.currentTarget.style.backgroundColor = 'transparent';
+                    }
+                  }}
+                >
+                  {tab.icon}
+                  <span>{tab.label}</span>
+                  <span
+                    className="text-[10px] font-mono px-1.5 py-0.2 rounded-full"
+                    style={{
+                      backgroundColor: isActive ? 'rgba(255,255,255,0.2)' : isDarkMode ? '#2e2e2e' : '#e0e0e0',
+                    }}
+                  >
+                    {tab.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tab Content Body (CTkScrollableFrame) */}
+          <div
+            className="flex-1 overflow-y-auto p-6 transition-colors"
+            style={{
+              backgroundColor: isDarkMode ? '#191919' : '#fafafa',
+            }}
+          >
+            <div className="max-w-4xl mx-auto space-y-4">
+              {/* Tab Title Banner */}
+              <div
+                className="flex items-center justify-between pb-2 border-b"
+                style={{ borderColor: isDarkMode ? '#333333' : '#e5e5e5' }}
+              >
+                <h3
+                  className="text-sm font-bold flex items-center gap-2 text-right"
+                  style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
+                >
+                  <span>{tabList.find((t) => t.key === activeTab)?.icon}</span>
+                  <span>{tabList.find((t) => t.key === activeTab)?.label}</span>
+                  <span className="text-xs font-normal text-neutral-400">
+                    ({currentTabConfig.fields.length} حقل مخصص)
+                  </span>
+                </h3>
+
+                <span className="text-[11px] font-mono text-neutral-400">
+                  {isAddMode ? 'سجل جديد (حقول فارغة)' : 'Data-bound from DataFrame'}
+                </span>
+              </div>
+
+              {/* Grid of CTkEntry Fields (2 to 3 Columns) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 text-right">
+                {currentTabConfig.fields.map((field) => {
+                  const val = fieldValues[field.key] ?? '';
+                  const isSeqField = field.key === 'ت';
+
+                  return (
+                    <div
+                      key={field.key}
+                      className="p-3 rounded-xl border flex flex-col gap-1.5 transition-colors focus-within:ring-1 focus-within:ring-emerald-500/50"
+                      style={{
+                        backgroundColor: isDarkMode ? '#242424' : '#ffffff',
+                        borderColor: isDarkMode ? '#353535' : '#e5e7eb',
+                      }}
+                    >
+                      <label
+                        className="text-[11px] font-semibold truncate block"
+                        style={{ color: isDarkMode ? '#cccccc' : '#374151' }}
+                        title={field.label}
+                      >
+                        {field.label}:
+                      </label>
+
+                      {/* CTkEntry styling */}
+                      <input
+                        type="text"
+                        value={val}
+                        disabled={isAddMode && isSeqField}
+                        placeholder={isAddMode && isSeqField ? '(تلقائي: أعلى ت + 1)' : ''}
+                        onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                        className={`w-full px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-hidden transition-colors ${
+                          isAddMode && isSeqField ? 'opacity-60 cursor-not-allowed bg-neutral-800' : ''
+                        }`}
+                        style={{
+                          backgroundColor: isDarkMode ? '#191919' : '#f9fafb',
+                          borderColor: isDarkMode ? '#404040' : '#d1d5db',
+                          color: isDarkMode ? '#f3f4f6' : '#111827',
+                        }}
+                        dir="auto"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Modal Footer / CTkToplevel Bottom Controls with Save & Delete (Phase 5) */}
+        <div
+          className="px-6 py-4 border-t flex flex-wrap items-center justify-between gap-3 text-xs transition-colors"
+          style={{
+            backgroundColor: isDarkMode ? '#242424' : '#f3f4f6',
+            borderColor: isDarkMode ? '#333333' : '#e5e5e5',
+          }}
+        >
+          <div className="flex items-center gap-2 text-neutral-400 text-[11px]">
+            <span className={`w-2 h-2 rounded-full ${isAddMode ? 'bg-blue-500' : 'bg-emerald-500'} inline-block`}></span>
+            <span>
+              {isAddMode
+                ? 'عند النقر على حفظ، يتم توليد رقم تسلسلي جديد وإضافته للـ DataFrame وتحديث الجدول وحفظ الإكسل.'
+                : 'عند النقر على حفظ أو حذف، يتم تحديث الذاكرة فورياً وتحديث الجدول وتصدير ملف الإكسل الأصلي.'}
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2.5">
+            {/* Prominent Save Button */}
+            <button
+              onClick={handleInitiateSave}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold text-white transition-all duration-150 hover:brightness-110 shadow-md cursor-pointer active:scale-98"
+              style={{ backgroundColor: '#107C41' }}
+            >
+              <Save className="w-4 h-4" />
+              <span>{isAddMode ? 'حفظ المنتسب الجديد' : 'حفظ التغييرات'}</span>
+            </button>
+
+            {/* Delete Button (المرحلة 5: يظهر فقط عند تعديل منتسب موجود) */}
+            {!isAddMode && record && onDelete && (
+              <button
+                onClick={() => setShowDeleteConfirm(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold text-white transition-all duration-150 hover:brightness-110 shadow-sm cursor-pointer active:scale-98"
+                style={{ backgroundColor: '#c53030' }}
+                title="حذف هذا المنتسب نهائياً من قاعدة البيانات"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>حذف المنتسب</span>
+              </button>
+            )}
+
+            {/* Close Button */}
+            <button
+              onClick={onClose}
+              className="px-4 py-2.5 rounded-xl text-xs font-semibold transition-colors cursor-pointer border"
+              style={{
+                backgroundColor: isDarkMode ? '#333333' : '#e5e7eb',
+                borderColor: isDarkMode ? '#444444' : '#d1d5db',
+                color: isDarkMode ? '#e5e5e5' : '#374151',
+              }}
+            >
+              إلغاء وإغلاق
+            </button>
+          </div>
+        </div>
+
+        {/* CTkMessagebox Simulation (رسالة تأكيد الحفظ) */}
+        {showSaveConfirm && (
+          <div className="absolute inset-0 z-60 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div
+              className="w-full max-w-md rounded-2xl border shadow-2xl p-6 flex flex-col gap-4 text-center font-sans animate-in zoom-in-95 duration-150"
+              style={{
+                backgroundColor: isDarkMode ? '#242424' : '#ffffff',
+                borderColor: isDarkMode ? '#404040' : '#e5e7eb',
+              }}
+            >
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-500/20 text-emerald-500 flex items-center justify-center shadow-inner">
+                  <CheckCircle2 className="w-8 h-8" />
+                </div>
+                <div>
+                  <h4
+                    className="text-base font-bold"
+                    style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
+                  >
+                    {isAddMode ? 'تمت إضافة المنتسب بنجاح' : 'تم حفظ التعديلات بنجاح'}
+                  </h4>
+                  <p className="text-xs mt-1 text-neutral-400 leading-relaxed">
+                    تم {isAddMode ? 'تسجيل المنتسب الجديد' : 'تحديث سجل المنتسب'} <strong className="text-emerald-400">"{fieldValues['الاسم الرباعي واللقب'] || (record ? record.fullname : 'منتسب جديد')}"</strong> في الذاكرة (Pandas DataFrame)، وتحديث الجدول الرئيسي فوراً، وتصدير ملف الإكسل الأصلي.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-2 flex justify-center">
+                <button
+                  onClick={handleConfirmSave}
+                  className="w-full py-2.5 rounded-xl text-xs font-bold text-white shadow-md hover:brightness-110 transition-all cursor-pointer"
+                  style={{ backgroundColor: '#107C41' }}
+                >
+                  موافق (العودة إلى الشاشة الرئيسية)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Confirmation Dialog Simulation (المرحلة 5: نافذة تأكيد الحذف) */}
+        {showDeleteConfirm && (
+          <div className="absolute inset-0 z-60 bg-black/65 backdrop-blur-xs flex items-center justify-center p-4 animate-in fade-in duration-150">
+            <div
+              className="w-full max-w-md rounded-2xl border shadow-2xl p-6 flex flex-col gap-4 text-center font-sans animate-in zoom-in-95 duration-150"
+              style={{
+                backgroundColor: isDarkMode ? '#242424' : '#ffffff',
+                borderColor: isDarkMode ? '#522' : '#fecaca',
+              }}
+            >
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-14 h-14 rounded-2xl bg-red-500/20 text-red-500 flex items-center justify-center shadow-inner">
+                  <Trash2 className="w-8 h-8" />
+                </div>
+                <div>
+                  <h4
+                    className="text-base font-bold"
+                    style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
+                  >
+                    تأكيد حذف المنتسب
+                  </h4>
+                  <p className="text-xs mt-2 text-neutral-300 leading-relaxed">
+                    هل أنت متأكد من حذف بيانات هذا المنتسب نهائياً؟
+                  </p>
+                  <p className="text-xs mt-1 font-mono text-red-400">
+                    "{fieldValues['الاسم الرباعي واللقب'] || (record ? record.fullname : '')}"
+                    <br />
+                    (الرقم العسكري: {fieldValues['الرقم العسكري'] || (record ? record.military_id : '-')})
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-2 flex items-center gap-3 justify-center">
+                <button
+                  onClick={handleConfirmDelete}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white shadow-md hover:brightness-110 transition-all cursor-pointer"
+                  style={{ backgroundColor: '#c53030' }}
+                >
+                  نعم، حذف نهائي
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="flex-1 py-2.5 rounded-xl text-xs font-semibold border transition-colors cursor-pointer"
+                  style={{
+                    backgroundColor: isDarkMode ? '#333333' : '#e5e7eb',
+                    borderColor: isDarkMode ? '#444444' : '#d1d5db',
+                    color: isDarkMode ? '#e5e5e5' : '#374151',
+                  }}
+                >
+                  إلغاء
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
