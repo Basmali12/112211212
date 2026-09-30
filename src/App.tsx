@@ -162,9 +162,9 @@ export default function App() {
           <div className="absolute inset-0 bg-linear-to-l from-[#06110f]/15 via-[#06110f]/75 to-[#06110f] pointer-events-none" />
           <div className="absolute inset-y-0 left-0 right-[36%] z-20 pointer-events-none">
             <img
-              src={`${import.meta.env.BASE_URL}official-gold-logo-hq.webp`}
+              src={`${import.meta.env.BASE_URL}official-gold-logo-full.png`}
               alt="رئاسة الوزراء هيئة الحشد الشعبي - اللواء الثاني والعشرون"
-              className="h-full w-full object-fill contrast-125 brightness-110 drop-shadow-[0_2px_10px_rgba(218,165,32,0.38)]"
+              className="h-full w-full object-fill contrast-110 brightness-105 drop-shadow-[0_2px_10px_rgba(218,165,32,0.38)]"
             />
           </div>
           <div className="relative z-10 max-w-[1600px] mx-auto px-4 lg:px-6 h-full grid grid-cols-[minmax(260px,1fr)_minmax(260px,420px)_minmax(260px,1fr)] items-center gap-4" dir="rtl">
