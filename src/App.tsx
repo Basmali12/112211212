@@ -154,7 +154,7 @@ export default function App() {
       <header className="app-shell-header sticky top-0 z-40 border-b border-emerald-500/25 bg-[#06110f]/95 backdrop-blur-xl">
         <div className="relative h-[104px] overflow-hidden border-b border-emerald-500/15">
           <img
-            src="/header-military-banner.png"
+            src={`${import.meta.env.BASE_URL}header-military-banner.png`}
             alt=""
             aria-hidden="true"
             className="absolute inset-y-0 right-0 h-full w-[72%] object-cover object-right opacity-35 pointer-events-none"
@@ -162,7 +162,7 @@ export default function App() {
           <div className="absolute inset-0 bg-linear-to-l from-[#06110f]/15 via-[#06110f]/75 to-[#06110f] pointer-events-none" />
           <div className="absolute inset-y-0 left-0 right-[36%] z-20 pointer-events-none">
             <img
-              src="/official-gold-logo-hq.webp"
+              src={`${import.meta.env.BASE_URL}official-gold-logo-hq.webp`}
               alt="رئاسة الوزراء هيئة الحشد الشعبي - اللواء الثاني والعشرون"
               className="h-full w-full object-fill contrast-125 brightness-110 drop-shadow-[0_2px_10px_rgba(218,165,32,0.38)]"
             />
