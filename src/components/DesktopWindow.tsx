@@ -51,11 +51,13 @@ import {
   Sparkles,
   BookOpen,
   Award,
-  MoreVertical
+  MoreVertical,
+  Radio
 } from 'lucide-react';
 import type { AppConfig, SimulatorView, MilitaryRecord } from '../types';
 import { INITIAL_MILITARY_RECORDS, normalizeArabic, TAB_SCHEMA, TOTAL_PERSONNEL_FIELDS, getFullDetailsForRecord, buildCompleteMilitaryDetails } from '../mockData';
 import { parseWorksheetRows } from '../excelImport';
+import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
 import { DirectoryDialog } from './DirectoryDialog';
 import { ExcelImportModal } from './ExcelImportModal';
 import { PersonnelDetailsModal } from './PersonnelDetailsModal';
@@ -67,6 +69,11 @@ import {
   isPersonnelRecordsFolder,
 } from './FolderPersonnelRecords';
 import { VehicleRecords, getStoredVehicleCount } from './VehicleRecords';
+import { MartyrRecords } from './MartyrRecords';
+import { ArmamentRecords } from './ArmamentRecords';
+import { FinancialRecords } from './FinancialRecords';
+import { MilitaryDashboard } from './MilitaryDashboard';
+import type { CamoIntensity, CamoPatternType } from './MilitaryCamoBackground';
 import {
   saveDatabaseDirectlyToDisk,
   getActiveDirectoryHandle,
@@ -159,12 +166,12 @@ export const REGIMENT_MILITARY_FILES: MilitaryRegimentFile[] = [
   {
     id: 'file_alamal',
     orderNumber: 8,
-    label: 'مكتب الآمر / الآمل',
-    name: 'الامل',
-    code: 'CMD-01',
-    category: 'القيادة والأوامر',
+    label: 'شعبة التدريب',
+    name: 'التدريب',
+    code: 'TRN-01',
+    category: 'التدريب والتأهيل',
     iconType: 'commander',
-    description: 'أوامر وتوجيهات الآمر / الآمل والبرقيات الخاصة المباشرة',
+    description: 'سجلات التدريب والتأهيل والدورات الخاصة بالمنتسبين',
   },
   {
     id: 'file_sader',
@@ -254,6 +261,8 @@ export interface IndexedFolderDoc extends FolderDocumentItem {
   cleanTitle: string;
   hasHyphen: boolean;
 }
+
+const FOLDER_ATTACHMENTS_SHEET = 'مرفقات_الأضبارة';
 
 // تحويل الأرقام العربية الهندية (٠١٢٣٤٥٦٧٨٩) والفارسية إلى أرقام إنجليزية (0123456789)
 export function convertArabicIndicDigits(str: string): string {
@@ -378,6 +387,12 @@ interface DesktopWindowProps {
   onNavigateToCode?: () => void;
   activeView?: SimulatorView;
   onActiveViewChange?: (view: SimulatorView) => void;
+  camoEnabled: boolean;
+  camoPattern: CamoPatternType;
+  camoIntensity: CamoIntensity;
+  onCamoEnabledChange: (enabled: boolean) => void;
+  onCamoPatternChange: (pattern: CamoPatternType) => void;
+  onCamoIntensityChange: (intensity: CamoIntensity) => void;
 }
 
 export const DesktopWindow: React.FC<DesktopWindowProps> = ({
@@ -387,6 +402,12 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
   onNavigateToCode,
   activeView: controlledActiveView,
   onActiveViewChange,
+  camoEnabled,
+  camoPattern,
+  camoIntensity,
+  onCamoEnabledChange,
+  onCamoPatternChange,
+  onCamoIntensityChange,
 }) => {
   const [internalActiveView, setInternalActiveView] = useState<SimulatorView>('home');
   const activeView = controlledActiveView !== undefined ? controlledActiveView : internalActiveView;
@@ -474,6 +495,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
   const [inlineDocAttachments, setInlineDocAttachments] = useState<AttachedDocumentFile[]>([]);
   const [inlineIsProcessing, setInlineIsProcessing] = useState<boolean>(false);
   const inlineFileInputRef = useRef<HTMLInputElement>(null);
+  const folderExcelInputRef = useRef<HTMLInputElement>(null);
 
   // تعديل اسم مرفق (صورة أو PDF)
   const [editingAtt, setEditingAtt] = useState<{ docId: string; attId: string; name: string } | null>(null);
@@ -1100,7 +1122,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
     <div className="flex flex-col gap-4">
       {/* The Simulated Desktop Window Frame */}
       <div
-        className="w-full rounded-2xl shadow-2xl overflow-hidden border transition-colors duration-300 font-sans"
+        className="military-window w-full rounded-2xl shadow-2xl overflow-hidden border transition-colors duration-300 font-sans"
         style={{
           backgroundColor: isDarkMode ? '#1a1a1a' : '#ebebeb',
           borderColor: isDarkMode ? '#333333' : '#d0d0d0',
@@ -1108,7 +1130,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
       >
         {/* OS Window Title Bar */}
         <div
-          className="flex items-center justify-between px-4 py-2.5 select-none border-b transition-colors duration-300"
+          className="hidden items-center justify-between px-4 py-2.5 select-none border-b transition-colors duration-300"
           style={{
             backgroundColor: isDarkMode ? '#222222' : '#e0e0e0',
             borderColor: isDarkMode ? '#2d2d2d' : '#d4d4d4',
@@ -1132,16 +1154,32 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
         </div>
 
         {/* Window Body Container: 100% FULL WIDTH (التبويبات متوفرة بالأعلى والواجهة كاملة للسجلات) */}
-        <div className="p-4 min-h-[640px] flex flex-col">
+        <div className={`military-window-body min-h-[640px] flex flex-col ${activeView === 'home' ? 'p-0' : 'p-4'}`}>
           {/* Main Content Area (CTkFrame) - Spans Full Width */}
           <div
-            className="w-full flex-1 rounded-2xl p-5 transition-colors duration-300 flex flex-col justify-between overflow-hidden"
+            className={`military-panel w-full flex-1 rounded-2xl transition-colors duration-300 flex flex-col justify-between overflow-hidden ${activeView === 'home' ? 'dashboard-host p-0' : 'p-5'}`}
             style={{
               backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff',
             }}
           >
-            {/* VIEW 1: الرئيسية (Home View - Search Bar & ttk.Treeview Table) */}
+            {/* VIEW 1: الرئيسية */}
             {activeView === 'home' && (
+              <MilitaryDashboard
+                records={records}
+                searchQuery={searchQuery}
+                onSearchChange={setSearchQuery}
+                selectedRecordId={selectedRecordId}
+                onSelectRecord={setSelectedRecordId}
+                onAddPersonnel={handleAddNewPersonnel}
+                onImportExcel={() => setIsExcelModalOpen(true)}
+                onExportExcel={() => triggerExcelDownload(records, config.database_filename || 'database.xlsx')}
+                onOpenDetails={handleOpenDetails}
+                onOpenFiles={setPdfRecord}
+              />
+            )}
+
+            {/* Legacy home kept as a compile-time reference while the new dashboard owns the visible layout. */}
+            {false && (
               <div className="flex flex-col h-full justify-between animate-in fade-in duration-150">
                 <div className="flex flex-col flex-1 min-h-0">
                   {/* Smart Search Bar & Add & Delete buttons (مرفوعة لأعلى الواجهة مباشرة) */}
@@ -1406,7 +1444,57 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
               </div>
             )}
 
-            {/* VIEW 2: الإعدادات (Settings View) */}
+            {/* VIEW 2: سجل الشهداء والجرحى */}
+            {activeView === 'casualties' && (
+              <MartyrRecords isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
+            )}
+
+            {/* تبويبة التسليحات */}
+            {activeView === 'weapons' && (
+              <ArmamentRecords isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
+            )}
+
+            {/* تبويبة المالية */}
+            {activeView === 'finance' && (
+              <FinancialRecords isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
+            )}
+
+            {/* تبويبة الاتصالات — مهيأة للحقول القادمة */}
+            {activeView === 'communications' && (
+              <div className="flex flex-1 min-h-[540px] flex-col animate-in fade-in duration-150">
+                <div className="flex items-center justify-between gap-3 mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setActiveView('home')}
+                    className="px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2 cursor-pointer bg-neutral-800 text-white border border-neutral-700 hover:border-cyan-500/60"
+                  >
+                    <ArrowRight className="w-4 h-4" />
+                    <span>رجوع</span>
+                  </button>
+                  <div className="text-right">
+                    <h1 className="text-xl font-bold flex items-center gap-2 justify-end">
+                      <Radio className="w-5 h-5 text-cyan-400" />
+                      <span>الاتصالات</span>
+                    </h1>
+                  </div>
+                </div>
+                <div
+                  className="flex-1 rounded-2xl border flex flex-col items-center justify-center text-center p-8"
+                  style={{
+                    backgroundColor: isDarkMode ? '#1a1a1a' : '#f8fafc',
+                    borderColor: isDarkMode ? '#343434' : '#e2e8f0',
+                  }}
+                >
+                  <span className="w-16 h-16 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mb-4 border border-cyan-500/20">
+                    <Radio className="w-8 h-8" />
+                  </span>
+                  <h2 className="text-base font-bold mb-2">تبويبة الاتصالات</h2>
+                  <p className="text-xs text-neutral-400">جاهزة لإضافة الحقول والسجلات.</p>
+                </div>
+              </div>
+            )}
+
+            {/* VIEW 3: الإعدادات (Settings View) */}
             {activeView === 'settings' && (
               <div className="flex flex-col gap-6 animate-in fade-in duration-150">
                 <div className="text-right">
@@ -1518,6 +1606,84 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                           <span className="w-2.5 h-2.5 rounded-full bg-[#1f538d]"></span>
                           <span>كحلي</span>
                         </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* إعدادات الخلفية العسكرية — النسخة الوحيدة في الواجهة */}
+                <div
+                  className="rounded-2xl p-5 border transition-colors text-right"
+                  style={{
+                    backgroundColor: isDarkMode ? '#272727' : '#f9f9fa',
+                    borderColor: isDarkMode ? '#383838' : '#e8e8e8',
+                  }}
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <button
+                      type="button"
+                      onClick={() => onCamoEnabledChange(!camoEnabled)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border cursor-pointer transition-colors ${
+                        camoEnabled
+                          ? 'bg-emerald-900/80 text-emerald-300 border-emerald-700'
+                          : 'bg-neutral-800 text-neutral-400 border-neutral-700'
+                      }`}
+                    >
+                      {camoEnabled ? 'مفعلة ✓' : 'معطلة'}
+                    </button>
+                    <h3 className="font-bold text-base flex items-center gap-2" style={{ color: isDarkMode ? '#ffffff' : '#1a1a1a' }}>
+                      <Shield className="w-5 h-5 text-emerald-400" />
+                      <span>الخلفية المرقطة العسكرية</span>
+                    </h3>
+                  </div>
+
+                  <p className="text-xs mb-4 leading-relaxed" style={{ color: isDarkMode ? '#a0a0a0' : '#666666' }}>
+                    تفعيل الخلفية العسكرية واختيار نمط التمويه ودرجة وضوحه.
+                  </p>
+
+                  <div className="grid grid-cols-1 lg:grid-cols-[1fr_auto] gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {[
+                        { id: 'soldier', label: '🪖 مرقط تكتيكي + جندي', desc: 'تمويه مع صورة ظلية لجندي' },
+                        { id: 'woodland', label: '🌲 مرقط كلاسيكي', desc: 'ألوان زيتونية وخاكية' },
+                        { id: 'digital', label: '👾 مرقط رقمي', desc: 'تمويه بكسل رقمي تكتيكي' },
+                        { id: 'desert', label: '🏜️ مرقط صحراوي', desc: 'ألوان رملية وبيج' },
+                      ].map((item) => (
+                        <button
+                          type="button"
+                          key={item.id}
+                          onClick={() => onCamoPatternChange(item.id as CamoPatternType)}
+                          className={`text-right p-3 rounded-xl text-xs transition-colors flex flex-col cursor-pointer border ${
+                            camoPattern === item.id
+                              ? 'bg-emerald-950/70 border-emerald-600/80 text-emerald-200'
+                              : 'bg-neutral-900/40 hover:bg-neutral-800 text-neutral-300 border-neutral-700/60'
+                          }`}
+                        >
+                          <span className="font-bold">{item.label}</span>
+                          <span className="text-[10px] text-neutral-400 mt-1">{item.desc}</span>
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="min-w-52 rounded-xl border border-neutral-700/60 bg-neutral-900/40 p-3">
+                      <div className="text-[11px] text-neutral-400 font-semibold mb-2">درجة وضوح التمويه:</div>
+                      <div className="flex lg:flex-col gap-2">
+                        {[
+                          { id: 'subtle', label: 'خفيف' },
+                          { id: 'medium', label: 'متوسط' },
+                          { id: 'bold', label: 'بارز وقوي' },
+                        ].map((item) => (
+                          <button
+                            type="button"
+                            key={item.id}
+                            onClick={() => onCamoIntensityChange(item.id as CamoIntensity)}
+                            className={`flex-1 px-4 py-2 rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
+                              camoIntensity === item.id ? 'bg-emerald-600 text-white' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'
+                            }`}
+                          >
+                            {item.label}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   </div>
@@ -1796,7 +1962,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
               </div>
             )}
 
-            {/* VIEW 3: تبويبة ملفات الفوج الـ 13 (Regiment Files View) */}
+            {/* VIEW 4: تبويبة ملفات الفوج الـ 13 (Regiment Files View) */}
             {activeView === 'blank' && (
               <div className="flex-1 w-full h-full min-h-[560px] flex flex-col transition-colors">
                 {/* حالة عرض الملف المفتوح (عند الضغط عليه يظهر فارغ تماماً) */}
@@ -1995,12 +2161,112 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                         'ملاحظات': d.notes || '',
                       }));
 
-                      const worksheet = XLSX.utils.json_to_sheet(exportData);
+                      const worksheet = exportData.length > 0
+                        ? XLSX.utils.json_to_sheet(exportData)
+                        : XLSX.utils.aoa_to_sheet([[
+                            'ت (رقم الفهرس)',
+                            'رقم الكتاب / الصادر',
+                            'اسم وموضوع الكتاب',
+                            'الاسم المفهرس النظيف',
+                            'تاريخ القيد',
+                            'وقت التسجيل',
+                            'عدد الصور المرفقة',
+                            'عدد ملفات PDF',
+                            'إجمالي المرفقات',
+                            'ملاحظات',
+                          ]]);
                       const workbook = XLSX.utils.book_new();
                       XLSX.utils.book_append_sheet(workbook, worksheet, 'سجل_الفهرسة_العسكرية');
+                      appendEmbeddedFilesSheet(
+                        workbook,
+                        FOLDER_ATTACHMENTS_SHEET,
+                        currentFolderDocs.flatMap((doc) => doc.attachments.map((attachment) => ({
+                          recordKey: String(doc.seqIndex),
+                          name: attachment.name,
+                          type: attachment.type === 'pdf'
+                            ? 'application/pdf'
+                            : attachment.dataUrl.match(/^data:([^;,]+)/)?.[1] || 'image/jpeg',
+                          dataUrl: attachment.dataUrl,
+                        }))),
+                      );
                       const fname = `فهرس_${currentOpenedFile?.name || 'الملف'}_${new Date().toISOString().split('T')[0]}.xlsx`;
                       XLSX.writeFile(workbook, fname);
                       onShowToast('success', 'تم تصدير الفهرس', `تم تصدير جدول الفهرسة إلى ${fname} بنجاح.`);
+                    };
+
+                    const handleImportFolderExcel = async (file: File | undefined) => {
+                      if (!file || !openedFileId) return;
+                      try {
+                        const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+                        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '', raw: false });
+                        const embeddedAttachments = readEmbeddedFilesSheet(workbook, FOLDER_ATTACHMENTS_SHEET);
+                        const imported = rows.map((row, index): FolderDocumentItem | null => {
+                          const documentNumber = String(
+                            row['رقم الكتاب / الصادر'] ?? row['رقم الكتاب'] ?? row['رقم الصادر'] ?? row['الرقم'] ?? '',
+                          ).trim();
+                          const title = String(
+                            row['اسم وموضوع الكتاب'] ?? row['اسم الملف'] ?? row['العنوان'] ?? row['الاسم'] ?? '',
+                          ).trim();
+                          if (!title && !documentNumber) return null;
+                          const sequence = String(row['ت (رقم الفهرس)'] ?? row['ت'] ?? index + 1).trim();
+                          const attachments = (embeddedAttachments.get(sequence) || []).map((file, fileIndex): AttachedDocumentFile => ({
+                            id: globalThis.crypto?.randomUUID?.() || `att_excel_${Date.now()}_${index}_${fileIndex}`,
+                            name: file.name,
+                            type: file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf') ? 'pdf' : 'image',
+                            size: Math.max(0, Math.floor((file.dataUrl.split(',')[1]?.length || 0) * 0.75)),
+                            dataUrl: file.dataUrl,
+                            uploadedAt: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
+                          }));
+                          return {
+                            id: globalThis.crypto?.randomUUID?.() || `doc_${Date.now()}_${index}`,
+                            folderId: openedFileId,
+                            title: title || `كتاب رقم ${documentNumber}`,
+                            documentNumber: documentNumber || undefined,
+                            date: String(row['تاريخ القيد'] ?? row['التاريخ'] ?? '').trim() || new Date().toLocaleDateString('ar-IQ'),
+                            notes: String(row['ملاحظات'] ?? row['الملاحظات'] ?? '').trim() || undefined,
+                            attachments,
+                            createdAt: new Date().toLocaleTimeString('ar-IQ', { hour: '2-digit', minute: '2-digit' }),
+                          };
+                        }).filter((doc): doc is FolderDocumentItem => doc !== null);
+
+                        if (imported.length === 0) {
+                          onShowToast('warning', 'ملف Excel فارغ', 'لم يتم العثور على سجلات قابلة للإضافة.');
+                          return;
+                        }
+                        const updated = [...folderDocuments];
+                        let addedCount = 0;
+                        let updatedCount = 0;
+                        imported.forEach((importedDoc) => {
+                          const matchIndex = updated.findIndex((doc) =>
+                            doc.folderId === openedFileId && (
+                              (importedDoc.documentNumber && doc.documentNumber === importedDoc.documentNumber) ||
+                              doc.title === importedDoc.title
+                            ),
+                          );
+                          if (matchIndex >= 0) {
+                            const existing = updated[matchIndex];
+                            updated[matchIndex] = {
+                              ...existing,
+                              ...importedDoc,
+                              id: existing.id,
+                              createdAt: existing.createdAt,
+                              attachments: importedDoc.attachments.length > 0 ? importedDoc.attachments : existing.attachments,
+                            };
+                            updatedCount += 1;
+                          } else {
+                            updated.unshift(importedDoc);
+                            addedCount += 1;
+                          }
+                        });
+                        setFolderDocuments(updated);
+                        localStorage.setItem('military_regiment_documents_v1', JSON.stringify(updated));
+                        onShowToast('success', 'تم رفع Excel دون فقدان المرفقات', `أضيف ${addedCount} سجل وحُدّث ${updatedCount} سجل داخل ${currentOpenedFile?.name || 'القسم'} مع الحفاظ على الصور وPDF.`);
+                      } catch {
+                        onShowToast('warning', 'تعذر قراءة Excel', 'تأكد من اختيار ملف Excel صالح وبالعناوين الصحيحة.');
+                      } finally {
+                        if (folderExcelInputRef.current) folderExcelInputRef.current.value = '';
+                      }
                     };
 
                     const isAnySearchActive =
@@ -2099,22 +2365,35 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                 </button>
                               </div>
 
-                              {/* زر تصدير الفهرس إلى Excel */}
-                              {allFolderDocs.length > 0 && (
-                                <button
-                                  onClick={handleExportIndexToExcel}
-                                  className="px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer hover:bg-emerald-600 hover:text-white hover:border-emerald-600 shadow-xs"
-                                  style={{
-                                    backgroundColor: isDarkMode ? '#222222' : '#ffffff',
-                                    borderColor: isDarkMode ? '#383838' : '#cbd5e1',
-                                    color: isDarkMode ? '#86efac' : '#15803d',
-                                  }}
-                                  title="تصدير جدول الفهرسة الكامل إلى ملف Excel"
-                                >
-                                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-500" />
-                                  <span className="hidden sm:inline">تصدير الفهرس</span>
-                                </button>
-                              )}
+                              <button
+                                onClick={() => folderExcelInputRef.current?.click()}
+                                className="px-3 py-1.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                                title="رفع ملف Excel إلى هذا القسم فقط"
+                              >
+                                <Upload className="w-3.5 h-3.5" />
+                                <span>رفع Excel</span>
+                              </button>
+                              <input
+                                ref={folderExcelInputRef}
+                                type="file"
+                                accept=".xlsx,.xls"
+                                className="hidden"
+                                onChange={(event) => void handleImportFolderExcel(event.target.files?.[0])}
+                              />
+
+                              <button
+                                onClick={handleExportIndexToExcel}
+                                className="px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer hover:bg-blue-600 hover:text-white hover:border-blue-600 shadow-xs"
+                                style={{
+                                  backgroundColor: isDarkMode ? '#222222' : '#ffffff',
+                                  borderColor: isDarkMode ? '#383838' : '#cbd5e1',
+                                  color: isDarkMode ? '#93c5fd' : '#1d4ed8',
+                                }}
+                                title="تحميل سجل هذا القسم إلى ملف Excel"
+                              >
+                                <Download className="w-3.5 h-3.5" />
+                                <span>تحميل Excel</span>
+                              </button>
 
                               {/* زر إضافة صادر جديد / وارد جديد */}
                               <button
@@ -2813,7 +3092,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                             أضابير وسجلات الفوج والسرايا والوحدات العسكرية
                           </h3>
                           <p className="text-[11px] text-neutral-400">
-                            السرايا الأربعة، مقر الفوج، الحركات، الاستخبارات، الآمر/الامل، وكافة الأضابير - داخل كل فولدر حقل إضافة وتظهر الحقول وحقل بحث
+                            السرايا الأربعة، مقر الفوج، الحركات، الاستخبارات، التدريب، وكافة الأضابير - داخل كل فولدر حقل إضافة وتظهر الحقول وحقل بحث
                           </p>
                         </div>
                       </div>
@@ -3575,6 +3854,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
         onDelete={handleDeleteRecord}
         isDarkMode={isDarkMode}
         colorTheme={config.color_theme}
+        onShowToast={onShowToast}
       />
 
       {/* Confirmation Dialog for Deleting Selected Record from Main Screen (CTkMessagebox Simulation) */}

@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, FileImage, FileText, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
+import { ArrowRight, Download, FileImage, FileText, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import type { MilitaryRecord } from '../types';
 import {
   deletePersonnelFile,
@@ -8,6 +8,7 @@ import {
   savePersonnelFile,
   type StoredPersonnelFile,
 } from '../personnelPdfStorage';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface PersonnelPdfFilesModalProps {
   record: MilitaryRecord;
@@ -45,6 +46,7 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState('');
+  const [pendingDeleteFile, setPendingDeleteFile] = useState<StoredPersonnelFile | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recordKey = record.military_id || `seq-${record.seq}`;
 
@@ -133,12 +135,10 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
   };
 
   const deleteFile = async (file: StoredPersonnelFile) => {
-    const confirmed = window.confirm(`هل تريد حذف الملف «${file.fileName}» نهائيًا من أضبارة المنتسب؟`);
-    if (!confirmed) return;
-
     try {
       await deletePersonnelFile(file.id);
       setFiles((currentFiles) => currentFiles.filter((item) => item.id !== file.id));
+      setPendingDeleteFile(null);
       onShowToast('success', 'تم حذف الملف', `حُذف «${file.fileName}» من الأضبارة.`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'تعذر حذف الملف.';
@@ -229,16 +229,36 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
                     <h4 className="text-sm font-bold">الملفات المحفوظة</h4>
                     <p className="text-[11px] text-neutral-400 mt-1">{files.length} ملف داخل أضبارة المنتسب</p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => fileInputRef.current?.click()}
-                    disabled={isSaving}
-                    className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-2 cursor-pointer"
-                    aria-label="إضافة صور أو ملفات PDF"
-                  >
-                    {isSaving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                    إضافة ملف
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="px-4 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-xs font-bold flex items-center gap-2 cursor-pointer"
+                      aria-label="الرجوع إلى الواجهة السابقة"
+                    >
+                      <ArrowRight className="w-4 h-4" />
+                      رجوع
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="px-4 py-2.5 rounded-xl border border-neutral-600/60 bg-neutral-700/30 hover:bg-neutral-600/40 text-neutral-200 text-xs font-bold flex items-center gap-2 cursor-pointer"
+                      aria-label="إلغاء وإغلاق أضبارة الملفات"
+                    >
+                      <X className="w-4 h-4" />
+                      إلغاء
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isSaving}
+                      className="px-4 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-xs font-bold flex items-center gap-2 cursor-pointer"
+                      aria-label="إضافة صور أو ملفات PDF"
+                    >
+                      {isSaving ? <LoaderCircle className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                      إضافة ملف
+                    </button>
+                  </div>
                 </div>
 
                 <div
@@ -296,7 +316,7 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => deleteFile(file)}
+                              onClick={() => setPendingDeleteFile(file)}
                               className="px-4 border-r border-neutral-700/60 text-red-400 hover:text-red-300 hover:bg-red-500/10 cursor-pointer flex items-center gap-1.5 text-[11px] font-bold"
                               aria-label={`حذف ${file.fileName}`}
                               title={`حذف ${file.fileName}`}
@@ -330,6 +350,16 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
           )}
         </div>
       </div>
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeleteFile)}
+        isDarkMode={isDarkMode}
+        title="تأكيد حذف الملف"
+        message={pendingDeleteFile ? `هل تريد حذف الملف «${pendingDeleteFile.fileName}» نهائيًا من أضبارة المنتسب؟` : ''}
+        onConfirm={() => {
+          if (pendingDeleteFile) void deleteFile(pendingDeleteFile);
+        }}
+        onCancel={() => setPendingDeleteFile(null)}
+      />
     </div>
   );
 };

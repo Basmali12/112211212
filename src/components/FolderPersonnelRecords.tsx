@@ -1,5 +1,6 @@
-import React, { useMemo, useState } from 'react';
-import { ArrowRight, ClipboardList, Plus, Search, UserPlus, X } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import * as XLSX from 'xlsx';
+import { ArrowRight, ClipboardList, Download, Plus, Search, Upload, UserPlus, X } from 'lucide-react';
 import { normalizeArabic } from '../mockData';
 
 const STORAGE_KEY = 'military_folder_personnel_records_v1';
@@ -13,6 +14,8 @@ export const PERSONNEL_RECORD_FOLDER_IDS = [
   'file_movements',
   'file_intel',
   'file_alamal',
+  'file_security',
+  'file_readiness',
 ] as const;
 
 export const isPersonnelRecordsFolder = (folderId: string): boolean =>
@@ -23,6 +26,8 @@ interface FolderPersonnelRecord {
   folderId: string;
   militaryNumber: string;
   fullName: string;
+  position: string;
+  unitOrCompany: string;
   motherName: string;
   birthDate: string;
   qiCardNumber: string;
@@ -35,6 +40,8 @@ type FolderPersonnelStore = Record<string, FolderPersonnelRecord[]>;
 interface RecordFormState {
   militaryNumber: string;
   fullName: string;
+  position: string;
+  unitOrCompany: string;
   motherName: string;
   birthDate: string;
   qiCardNumber: string;
@@ -53,6 +60,8 @@ interface FolderPersonnelRecordsProps {
 const EMPTY_FORM: RecordFormState = {
   militaryNumber: '',
   fullName: '',
+  position: '',
+  unitOrCompany: '',
   motherName: '',
   birthDate: '',
   qiCardNumber: '',
@@ -89,6 +98,7 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<RecordFormState>(EMPTY_FORM);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const filteredRecords = useMemo(() => {
     const normalizedQuery = normalizeSearchValue(query);
@@ -98,6 +108,8 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
       [
         record.militaryNumber,
         record.fullName,
+        record.position || '',
+        record.unitOrCompany || '',
         record.motherName,
         record.birthDate,
         record.qiCardNumber,
@@ -134,6 +146,8 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
       folderId,
       militaryNumber: form.militaryNumber.trim(),
       fullName: form.fullName.trim(),
+      position: form.position.trim(),
+      unitOrCompany: form.unitOrCompany.trim(),
       motherName: form.motherName.trim(),
       birthDate: form.birthDate.trim(),
       qiCardNumber: form.qiCardNumber.trim(),
@@ -148,6 +162,69 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
     setRecords(nextRecords);
     closeForm();
     onShowToast('success', 'تمت إضافة المنتسب', `حُفظ السجل داخل ${folderName}.`);
+  };
+
+  const downloadExcel = () => {
+    const rows = records.map((record, index) => ({
+      'ت': index + 1,
+      'الرقم العسكري': record.militaryNumber,
+      'الاسم الرباعي واللقب': record.fullName,
+      'المنصب': record.position || '',
+      'الفوج أو السرية': record.unitOrCompany || '',
+      'اسم الأم': record.motherName,
+      'تاريخ التولد': record.birthDate,
+      'رقم بطاقة كي كارد': record.qiCardNumber,
+      'رقم البطاقة الوطنية': record.nationalCardNumber,
+    }));
+    const worksheet = rows.length > 0
+      ? XLSX.utils.json_to_sheet(rows)
+      : XLSX.utils.aoa_to_sheet([['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'المنصب', 'الفوج أو السرية', 'اسم الأم', 'تاريخ التولد', 'رقم بطاقة كي كارد', 'رقم البطاقة الوطنية']]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'سجل_المنتسبين');
+    XLSX.writeFile(workbook, `${folderName}_سجل_المنتسبين.xlsx`);
+    onShowToast('success', 'تم تحميل Excel', `تم تنزيل سجل ${folderName} بصورة مستقلة.`);
+  };
+
+  const uploadExcel = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '', raw: false });
+      const imported = rows.map((row, index): FolderPersonnelRecord | null => {
+        const militaryNumber = String(row['الرقم العسكري'] ?? row['رقم العسكري'] ?? '').trim();
+        const fullName = String(row['الاسم الرباعي واللقب'] ?? row['الاسم'] ?? '').trim();
+        if (!militaryNumber && !fullName) return null;
+        return {
+          id: globalThis.crypto?.randomUUID?.() || `record_${Date.now()}_${index}`,
+          folderId,
+          militaryNumber,
+          fullName,
+          position: String(row['المنصب'] ?? row['الصفة'] ?? '').trim(),
+          unitOrCompany: String(row['الفوج أو السرية'] ?? row['الفوج او السرية'] ?? row['الفوج'] ?? row['السرية'] ?? '').trim(),
+          motherName: String(row['اسم الأم'] ?? row['اسم الام'] ?? '').trim(),
+          birthDate: String(row['تاريخ التولد'] ?? row['تاريخ الميلاد'] ?? '').trim(),
+          qiCardNumber: String(row['رقم بطاقة كي كارد'] ?? row['رقم الكي كارد'] ?? '').trim(),
+          nationalCardNumber: String(row['رقم البطاقة الوطنية'] ?? row['رقم البطاقة الموحدة'] ?? '').trim(),
+          createdAt: new Date().toISOString(),
+        };
+      }).filter((record): record is FolderPersonnelRecord => record !== null);
+
+      if (imported.length === 0) {
+        onShowToast('warning', 'ملف Excel فارغ', 'لم يتم العثور على سجلات قابلة للإضافة.');
+        return;
+      }
+      const nextRecords = [...records, ...imported];
+      const store = readStore();
+      store[folderId] = nextRecords;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(store));
+      setRecords(nextRecords);
+      onShowToast('success', 'تم رفع Excel', `تمت إضافة ${imported.length} سجل إلى ${folderName} فقط.`);
+    } catch {
+      onShowToast('warning', 'تعذر قراءة Excel', 'تأكد من اختيار ملف Excel صالح وبالعناوين الصحيحة.');
+    } finally {
+      if (excelInputRef.current) excelInputRef.current.value = '';
+    }
   };
 
   return (
@@ -188,15 +265,26 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowForm((current) => !current)}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
-            aria-expanded={showForm}
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>إضافة منتسب</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={() => excelInputRef.current?.click()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
+              <Upload className="w-4 h-4" />
+              <span>رفع Excel</span>
+            </button>
+            <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadExcel(event.target.files?.[0])} />
+            <button type="button" onClick={downloadExcel} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
+              <Download className="w-4 h-4" />
+              <span>تحميل Excel</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm((current) => !current)}
+              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 transition-all flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+              aria-expanded={showForm}
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>إضافة منتسب</span>
+            </button>
+          </div>
         </div>
 
         <div className="relative w-full">
@@ -264,6 +352,26 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
                 onChange={(event) => updateForm('fullName', event.target.value)}
                 placeholder="أدخل الاسم الرباعي واللقب"
                 required
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300">
+              المنصب
+              <input
+                value={form.position}
+                onChange={(event) => updateForm('position', event.target.value)}
+                placeholder="أدخل المنصب"
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              />
+            </label>
+            <label className="text-[11px] font-bold text-neutral-300">
+              الفوج أو السرية
+              <input
+                value={form.unitOrCompany}
+                onChange={(event) => updateForm('unitOrCompany', event.target.value)}
+                placeholder="أدخل الفوج أو السرية"
                 className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
                 style={inputStyle}
               />
@@ -337,10 +445,10 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px] text-right border-collapse">
+          <table className="w-full min-w-[1350px] text-right border-collapse">
             <thead>
               <tr style={{ backgroundColor: isDarkMode ? '#2b2b2b' : '#f1f5f9' }}>
-                {['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'اسم الأم', 'التولد', 'رقم الكي كارد الجديد', 'رقم البطاقة الموحدة'].map((heading) => (
+                {['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'المنصب', 'الفوج أو السرية', 'اسم الأم', 'التولد', 'رقم الكي كارد الجديد', 'رقم البطاقة الموحدة'].map((heading) => (
                   <th
                     key={heading}
                     className="px-4 py-3 text-[11px] font-bold border-b whitespace-nowrap"
@@ -358,6 +466,8 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
                     String(index + 1),
                     record.militaryNumber,
                     record.fullName,
+                    record.position || '—',
+                    record.unitOrCompany || '—',
                     record.motherName || '—',
                     record.birthDate || '—',
                     record.qiCardNumber || '—',

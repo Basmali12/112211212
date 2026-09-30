@@ -1,5 +1,6 @@
 import React from 'react';
 import { CheckCircle2, Info, AlertTriangle, X } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import type { ToastNotification } from '../types';
 
 interface ToastProps {
@@ -12,6 +13,7 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
 
   return (
     <div className="fixed bottom-5 left-5 z-50 flex flex-col gap-2 max-w-md w-full pointer-events-none">
+      <AnimatePresence initial={false}>
       {toasts.map((toast) => {
         const icons = {
           success: <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />,
@@ -26,9 +28,14 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
         };
 
         return (
-          <div
+          <motion.div
             key={toast.id}
-            className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl border shadow-xl backdrop-blur-md transition-all duration-200 animate-in fade-in slide-in-from-bottom-2 ${bgStyles[toast.type]}`}
+            layout
+            initial={{ opacity: 0, x: -28, scale: 0.94 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: -24, scale: 0.95 }}
+            transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+            className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl border shadow-xl backdrop-blur-md ${bgStyles[toast.type]}`}
           >
             {icons[toast.type]}
             <div className="flex-1 min-w-0 text-right">
@@ -46,9 +53,10 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
             >
               <X className="w-4 h-4" />
             </button>
-          </div>
+          </motion.div>
         );
       })}
+      </AnimatePresence>
     </div>
   );
 };

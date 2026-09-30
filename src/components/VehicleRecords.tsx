@@ -1,18 +1,29 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import * as XLSX from 'xlsx';
 import {
   ArrowRight,
   ChevronDown,
   ChevronUp,
+  Download,
+  FileImage,
+  ImagePlus,
+  Maximize2,
   Pencil,
   Plus,
   Search,
   Trash2,
   Truck,
+  Upload,
   X,
 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
 import { normalizeArabic } from '../mockData';
+import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
+import { ConfirmDialog } from './ConfirmDialog';
 
 const STORAGE_KEY = 'military_vehicle_records_v1';
+const AUTHORIZATION_IMAGES_SHEET = 'صور_تخويل_الآليات';
 
 interface VehicleRecord {
   id: string;
@@ -22,6 +33,8 @@ interface VehicleRecord {
   vehicleNumber: string;
   driverName: string;
   vehicleOwnership: string;
+  authorizationImageName: string;
+  authorizationImageDataUrl: string;
   notes: string;
   createdAt: string;
   updatedAt: string;
@@ -42,6 +55,8 @@ const EMPTY_FORM: VehicleFormState = {
   vehicleNumber: '',
   driverName: '',
   vehicleOwnership: '',
+  authorizationImageName: '',
+  authorizationImageDataUrl: '',
   notes: '',
 };
 
@@ -83,6 +98,10 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
   const [editingId, setEditingId] = useState<string | null>(null);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [form, setForm] = useState<VehicleFormState>(EMPTY_FORM);
+  const [pendingDeleteRecord, setPendingDeleteRecord] = useState<VehicleRecord | null>(null);
+  const [pendingImageDeleteRecord, setPendingImageDeleteRecord] = useState<VehicleRecord | null>(null);
+  const [previewRecord, setPreviewRecord] = useState<VehicleRecord | null>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   const filteredRecords = useMemo(() => {
     const normalizedQuery = normalizeSearchValue(query);
@@ -98,6 +117,26 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
 
   const updateForm = (field: keyof VehicleFormState, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
+  };
+
+  const selectAuthorizationImage = (file: File | undefined) => {
+    if (!file) return;
+    if (!file.type.startsWith('image/')) {
+      onShowToast('warning', 'صيغة غير مدعومة', 'اختر صورة لتخويل العجلة.');
+      return;
+    }
+    if (file.size > 4 * 1024 * 1024) {
+      onShowToast('warning', 'الصورة كبيرة', 'اختر صورة لا يتجاوز حجمها 4 ميغابايت.');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => setForm((current) => ({
+      ...current,
+      authorizationImageName: file.name,
+      authorizationImageDataUrl: typeof reader.result === 'string' ? reader.result : '',
+    }));
+    reader.onerror = () => onShowToast('warning', 'تعذر قراءة الصورة', 'حاول اختيار صورة أخرى.');
+    reader.readAsDataURL(file);
   };
 
   const closeForm = () => {
@@ -121,6 +160,8 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
       vehicleNumber: record.vehicleNumber,
       driverName: record.driverName,
       vehicleOwnership: record.vehicleOwnership,
+      authorizationImageName: record.authorizationImageName || '',
+      authorizationImageDataUrl: record.authorizationImageDataUrl || '',
       notes: record.notes,
     });
     setShowForm(true);
@@ -164,13 +205,138 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
   };
 
   const deleteRecord = (record: VehicleRecord) => {
-    if (!window.confirm(`هل تريد حذف سيارة السائق "${record.driverName}"؟`)) return;
     const nextRecords = records.filter((item) => item.id !== record.id);
     persistRecords(nextRecords);
     setRecords(nextRecords);
     if (expandedId === record.id) setExpandedId(null);
     if (editingId === record.id) closeForm();
+    setPendingDeleteRecord(null);
     onShowToast('info', 'تم حذف السيارة', `حُذف سجل سيارة السائق ${record.driverName}.`);
+  };
+
+  const deleteAuthorizationImage = (record: VehicleRecord) => {
+    const now = new Date().toISOString();
+    const nextRecords = records.map((item) => item.id === record.id ? {
+      ...item,
+      authorizationImageName: '',
+      authorizationImageDataUrl: '',
+      updatedAt: now,
+    } : item);
+    persistRecords(nextRecords);
+    setRecords(nextRecords);
+    setPendingImageDeleteRecord(null);
+    setPreviewRecord(null);
+    onShowToast('success', 'تم حذف صورة التخويل', `حُذفت صورة تخويل عجلة السائق ${record.driverName}.`);
+  };
+
+  const downloadExcel = () => {
+    const rows = records.map((record, index) => ({
+      'ت': index + 1,
+      'نوع العجلة': record.vehicleType,
+      'رقم الشاصي': record.chassisNumber,
+      'لون العجلة': record.vehicleColor,
+      'رقم العجلة': record.vehicleNumber,
+      'اسم السائق': record.driverName,
+      'عائدية العجلة': record.vehicleOwnership,
+      'اسم صورة التخويل': record.authorizationImageName || '',
+      'الملاحظات': record.notes,
+    }));
+    const worksheet = rows.length > 0
+      ? XLSX.utils.json_to_sheet(rows)
+      : XLSX.utils.aoa_to_sheet([['ت', 'نوع العجلة', 'رقم الشاصي', 'لون العجلة', 'رقم العجلة', 'اسم السائق', 'عائدية العجلة', 'اسم صورة التخويل', 'الملاحظات']]);
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'سجل_الآليات');
+
+    appendEmbeddedFilesSheet(workbook, AUTHORIZATION_IMAGES_SHEET, records.map((record, index) => ({
+      recordKey: String(index + 1),
+      name: record.authorizationImageName || 'تخويل_العجلة',
+      type: record.authorizationImageDataUrl.match(/^data:([^;,]+)/)?.[1] || 'image/jpeg',
+      dataUrl: record.authorizationImageDataUrl,
+    })));
+    XLSX.writeFile(workbook, 'سجل_السيارات_والآليات.xlsx');
+    onShowToast('success', 'تم تحميل Excel', 'تم تنزيل سجل السيارات والآليات مع صور التخويل المحفوظة.');
+  };
+
+  const uploadExcel = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '', raw: false });
+      const authorizationImages = readEmbeddedFilesSheet(workbook, AUTHORIZATION_IMAGES_SHEET);
+      const now = new Date().toISOString();
+      const imported = rows.map((row, index): VehicleRecord | null => {
+        const vehicleType = String(row['نوع العجلة'] ?? row['نوع السيارة'] ?? '').trim();
+        const vehicleNumber = String(row['رقم العجلة'] ?? row['رقم السيارة'] ?? '').trim();
+        const driverName = String(row['اسم السائق'] ?? '').trim();
+        if (!vehicleType && !vehicleNumber && !driverName) return null;
+        const imageEntry = authorizationImages.get(String(row['ت'] ?? index + 1).trim())?.[0];
+        const authorizationImageDataUrl = imageEntry?.dataUrl || '';
+        return {
+          id: globalThis.crypto?.randomUUID?.() || `vehicle_${Date.now()}_${index}`,
+          vehicleType,
+          chassisNumber: String(row['رقم الشاصي'] ?? '').trim(),
+          vehicleColor: String(row['لون العجلة'] ?? row['لون السيارة'] ?? '').trim(),
+          vehicleNumber,
+          driverName,
+          vehicleOwnership: String(row['عائدية العجلة'] ?? '').trim(),
+          authorizationImageName: authorizationImageDataUrl ? imageEntry?.name || 'تخويل_العجلة' : '',
+          authorizationImageDataUrl,
+          notes: String(row['الملاحظات'] ?? row['ملاحظات'] ?? '').trim(),
+          createdAt: now,
+          updatedAt: now,
+        };
+      }).filter((record): record is VehicleRecord => record !== null);
+
+      if (imported.length === 0) {
+        onShowToast('warning', 'ملف Excel فارغ', 'لم يتم العثور على سجلات آليات قابلة للإضافة.');
+        return;
+      }
+      const nextRecords = [...records];
+      let addedCount = 0;
+      let updatedCount = 0;
+      let restoredImageCount = 0;
+      imported.forEach((importedRecord) => {
+        const matchIndex = nextRecords.findIndex((record) =>
+          (importedRecord.vehicleNumber && record.vehicleNumber === importedRecord.vehicleNumber) ||
+          (importedRecord.chassisNumber && record.chassisNumber === importedRecord.chassisNumber),
+        );
+        if (matchIndex >= 0) {
+          const existing = nextRecords[matchIndex];
+          const importedHasImage = Boolean(importedRecord.authorizationImageDataUrl);
+          nextRecords[matchIndex] = {
+            ...existing,
+            ...importedRecord,
+            id: existing.id,
+            createdAt: existing.createdAt,
+            updatedAt: now,
+            authorizationImageName: importedHasImage
+              ? importedRecord.authorizationImageName
+              : existing.authorizationImageName || '',
+            authorizationImageDataUrl: importedHasImage
+              ? importedRecord.authorizationImageDataUrl
+              : existing.authorizationImageDataUrl || '',
+          };
+          if (importedHasImage) restoredImageCount += 1;
+          updatedCount += 1;
+        } else {
+          nextRecords.push(importedRecord);
+          if (importedRecord.authorizationImageDataUrl) restoredImageCount += 1;
+          addedCount += 1;
+        }
+      });
+      persistRecords(nextRecords);
+      setRecords(nextRecords);
+      onShowToast(
+        'success',
+        'تم رفع Excel دون فقدان الصور',
+        `أضيف ${addedCount} سجل وحُدّث ${updatedCount} سجل${restoredImageCount ? ` واستُعيدت ${restoredImageCount} صورة تخويل` : ' مع الحفاظ على صور التخويل الموجودة'}.`,
+      );
+    } catch {
+      onShowToast('warning', 'تعذر قراءة Excel', 'تأكد من اختيار ملف Excel صالح وبالعناوين الصحيحة.');
+    } finally {
+      if (excelInputRef.current) excelInputRef.current.value = '';
+    }
   };
 
   return (
@@ -209,14 +375,25 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={openAddForm}
-            className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
-          >
-            <Plus className="w-4 h-4" />
-            <span>إضافة سيارة</span>
-          </button>
+          <div className="flex items-center gap-2 flex-wrap">
+            <button type="button" onClick={() => excelInputRef.current?.click()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
+              <Upload className="w-4 h-4" />
+              <span>رفع Excel</span>
+            </button>
+            <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadExcel(event.target.files?.[0])} />
+            <button type="button" onClick={downloadExcel} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
+              <Download className="w-4 h-4" />
+              <span>تحميل Excel</span>
+            </button>
+            <button
+              type="button"
+              onClick={openAddForm}
+              className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95"
+            >
+              <Plus className="w-4 h-4" />
+              <span>إضافة سيارة</span>
+            </button>
+          </div>
         </div>
 
         <div className="relative w-full">
@@ -281,6 +458,21 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
                 />
               </label>
             ))}
+            <div className="sm:col-span-2 lg:col-span-3 rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3e3e3e' : '#cbd5e1' }}>
+              <div className="text-[11px] font-bold text-neutral-300 mb-2">تخويل العجلة</div>
+              <label className="min-h-24 rounded-xl border border-dashed border-teal-500/60 flex items-center justify-center gap-3 px-4 py-3 cursor-pointer hover:bg-teal-500/5">
+                <ImagePlus className="w-6 h-6 text-teal-400" />
+                <span className="text-[10px] text-neutral-400">{form.authorizationImageName || 'رفع صورة تخويل العجلة'}</span>
+                <input type="file" accept="image/*" onChange={(event) => { selectAuthorizationImage(event.target.files?.[0]); event.target.value = ''; }} className="sr-only" aria-label="اختيار صورة تخويل العجلة" />
+              </label>
+              {form.authorizationImageDataUrl && (
+                <div className="mt-3 flex flex-wrap items-center gap-3">
+                  <img src={form.authorizationImageDataUrl} alt="معاينة تخويل العجلة" className="w-28 h-20 rounded-lg object-cover border border-teal-500/30" />
+                  <button type="button" onClick={() => setForm((current) => ({ ...current, authorizationImageName: '', authorizationImageDataUrl: '' }))} className="px-3 py-2 rounded-lg text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 cursor-pointer">حذف الصورة من النموذج</button>
+                  <span className="text-[10px] text-neutral-500">يمكن اختيار صورة جديدة لاستبدال الحالية.</span>
+                </div>
+              )}
+            </div>
             <label className="text-[11px] font-bold text-neutral-300 sm:col-span-2 lg:col-span-3">
               الملاحظات
               <textarea
@@ -347,7 +539,7 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
                         <button type="button" onClick={() => openEditForm(record)} className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer" aria-label={`تعديل سيارة ${record.driverName}`}>
                           <Pencil className="w-3 h-3" /> تعديل
                         </button>
-                        <button type="button" onClick={() => deleteRecord(record)} className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer" aria-label={`حذف سيارة ${record.driverName}`}>
+                        <button type="button" onClick={() => setPendingDeleteRecord(record)} className="px-2.5 py-1.5 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer" aria-label={`حذف سيارة ${record.driverName}`}>
                           <Trash2 className="w-3 h-3" /> حذف
                         </button>
                       </div>
@@ -372,6 +564,19 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
                             </div>
                           ))}
                         </div>
+                        {record.authorizationImageDataUrl && (
+                          <div className="mt-3 rounded-xl border p-3 flex flex-wrap items-center justify-between gap-3" style={{ borderColor: isDarkMode ? '#334747' : '#99f6e4' }}>
+                            <div className="flex items-center gap-3 min-w-0">
+                              <FileImage className="w-5 h-5 text-teal-400 shrink-0" />
+                              <div className="min-w-0"><div className="text-[10px] text-neutral-400">تخويل العجلة</div><div className="text-[11px] font-bold truncate">{record.authorizationImageName || 'صورة التخويل'}</div></div>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2">
+                              <button type="button" onClick={() => setPreviewRecord(record)} className="px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Maximize2 className="w-3.5 h-3.5" /> فتح الصورة</button>
+                              <button type="button" onClick={() => openEditForm(record)} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Pencil className="w-3.5 h-3.5" /> تعديل/استبدال</button>
+                              <button type="button" onClick={() => setPendingImageDeleteRecord(record)} className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /> حذف الصورة</button>
+                            </div>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   )}
@@ -401,6 +606,68 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
         <span>{filteredRecords.length} سيارة ظاهرة</span>
         {query && <span>من أصل {records.length} سيارة</span>}
       </div>
+      <ConfirmDialog
+        isOpen={Boolean(pendingDeleteRecord)}
+        isDarkMode={isDarkMode}
+        title="تأكيد حذف السيارة"
+        message={pendingDeleteRecord ? `هل تريد حذف سيارة السائق «${pendingDeleteRecord.driverName}» نهائيًا؟` : ''}
+        onConfirm={() => {
+          if (pendingDeleteRecord) deleteRecord(pendingDeleteRecord);
+        }}
+        onCancel={() => setPendingDeleteRecord(null)}
+      />
+      <ConfirmDialog
+        isOpen={Boolean(pendingImageDeleteRecord)}
+        isDarkMode={isDarkMode}
+        title="تأكيد حذف صورة التخويل"
+        message={pendingImageDeleteRecord ? `هل تريد حذف صورة تخويل عجلة السائق «${pendingImageDeleteRecord.driverName}» فقط؟` : ''}
+        confirmLabel="نعم، حذف الصورة"
+        onConfirm={() => {
+          if (pendingImageDeleteRecord) deleteAuthorizationImage(pendingImageDeleteRecord);
+        }}
+        onCancel={() => setPendingImageDeleteRecord(null)}
+      />
+      {createPortal(
+        <AnimatePresence>
+          {previewRecord && (
+            <motion.div
+              className="fixed inset-0 z-[100] flex items-center justify-center bg-black/85 backdrop-blur-sm p-4"
+              dir="rtl"
+              role="presentation"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) setPreviewRecord(null);
+              }}
+            >
+              <motion.div
+                role="dialog"
+                aria-modal="true"
+                aria-label={`معاينة تخويل عجلة ${previewRecord.driverName}`}
+                className="w-full max-w-5xl max-h-[92vh] rounded-2xl border shadow-2xl overflow-hidden flex flex-col"
+                style={{ backgroundColor: isDarkMode ? '#202020' : '#ffffff', borderColor: isDarkMode ? '#444444' : '#e2e8f0' }}
+                initial={{ opacity: 0, scale: 0.92, y: 24 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 12 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 28 }}
+              >
+                <div className="flex items-center justify-between gap-3 p-4 border-b" style={{ borderColor: isDarkMode ? '#3b3b3b' : '#e2e8f0' }}>
+                  <div className="min-w-0"><h3 className="text-sm font-bold">معاينة تخويل العجلة</h3><p className="text-[10px] text-neutral-400 mt-1 truncate">{previewRecord.authorizationImageName}</p></div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <a href={previewRecord.authorizationImageDataUrl} download={previewRecord.authorizationImageName || 'تخويل_العجلة'} className="px-4 py-2 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold flex items-center gap-2"><Download className="w-4 h-4" /> تنزيل الصورة</a>
+                    <button type="button" onClick={() => setPreviewRecord(null)} className="p-2.5 rounded-xl bg-neutral-700 hover:bg-neutral-600 text-white cursor-pointer" aria-label="إغلاق معاينة تخويل العجلة"><X className="w-4 h-4" /></button>
+                  </div>
+                </div>
+                <div className="flex-1 min-h-0 overflow-auto p-4 flex items-center justify-center" style={{ backgroundColor: isDarkMode ? '#111111' : '#f8fafc' }}>
+                  <img src={previewRecord.authorizationImageDataUrl} alt={`تخويل عجلة السائق ${previewRecord.driverName}`} className="max-w-full max-h-[76vh] object-contain rounded-xl" />
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body,
+      )}
     </div>
   );
 };

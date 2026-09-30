@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   X,
   User,
@@ -11,10 +11,17 @@ import {
   CheckCircle2,
   Trash2,
   AlertTriangle,
-  UserPlus
+  UserPlus,
+  FileDown,
+  FileUp,
 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import type { MilitaryRecord } from '../types';
 import { TAB_SCHEMA, TOTAL_PERSONNEL_FIELDS, getFullDetailsForRecord } from '../mockData';
+import { appendEmbeddedFilesSheet, blobToDataUrl, dataUrlToFile, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
+import { listPersonnelFiles, savePersonnelFile } from '../personnelPdfStorage';
+
+const PERSONNEL_ATTACHMENTS_SHEET = 'مرفقات_العسكري';
 
 interface PersonnelDetailsModalProps {
   isOpen: boolean;
@@ -25,6 +32,7 @@ interface PersonnelDetailsModalProps {
   onDelete?: (record: MilitaryRecord) => void;
   isDarkMode: boolean;
   colorTheme: string;
+  onShowToast: (type: 'success' | 'info' | 'warning', title: string, message: string) => void;
 }
 
 type TabKey = 'personal' | 'documents' | 'residence' | 'social' | 'military';
@@ -38,6 +46,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
   onDelete,
   isDarkMode,
   colorTheme,
+  onShowToast,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>('personal');
   const [fieldValues, setFieldValues] = useState<Record<string, string>>({});
@@ -45,6 +54,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [isModified, setIsModified] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const excelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -148,6 +158,77 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
     }
   };
 
+  const personnelFieldKeys = Object.values(TAB_SCHEMA).flatMap((tab) => tab.fields.map((field) => field.key));
+
+  const exportPersonnelExcel = async () => {
+    const row = Object.fromEntries(personnelFieldKeys.map((key) => [key, fieldValues[key] || '']));
+    const sheet = XLSX.utils.json_to_sheet([row], { header: personnelFieldKeys });
+    sheet['!cols'] = personnelFieldKeys.map((key) => ({ wch: Math.max(16, Math.min(34, key.length + 6)) }));
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, sheet, 'بيانات العسكري');
+    const militaryId = fieldValues['الرقم العسكري'] || record?.military_id || 'بدون_رقم';
+    try {
+      const storedFiles = await listPersonnelFiles(militaryId);
+      const embeddedFiles = await Promise.all(storedFiles.map(async (file) => ({
+        recordKey: militaryId,
+        name: file.fileName,
+        type: file.mimeType || file.blob.type || (file.kind === 'pdf' ? 'application/pdf' : 'image/jpeg'),
+        dataUrl: await blobToDataUrl(file.blob),
+      })));
+      appendEmbeddedFilesSheet(workbook, PERSONNEL_ATTACHMENTS_SHEET, embeddedFiles);
+    } catch {
+      onShowToast('warning', 'تعذر تضمين المرفقات', 'سيتم تنزيل بيانات العسكري، لكن تعذر قراءة صور وPDF الأضبارة المحلية.');
+    }
+    const fileName = `ملف_العسكري_${militaryId}.xlsx`;
+    XLSX.writeFile(workbook, fileName);
+    onShowToast('success', 'تم تحميل ملف العسكري', `تم تصدير ${TOTAL_PERSONNEL_FIELDS} حقلاً مع صور وPDF الأضبارة إلى ${fileName}.`);
+  };
+
+  const importPersonnelExcel = async (file: File | undefined) => {
+    if (!file) return;
+    try {
+      const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+      const sheet = workbook.Sheets[workbook.SheetNames[0]];
+      const [row] = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: '', raw: false });
+      if (!row) throw new Error('empty');
+
+      const importedValues: Record<string, string> = {};
+      Object.values(TAB_SCHEMA).forEach((tab) => {
+        tab.fields.forEach((field) => {
+          const matchingHeader = [field.key, field.label, ...(field.sourceHeaders || [])]
+            .find((header) => row[header] !== undefined && row[header] !== null && String(row[header]).trim() !== '');
+          if (matchingHeader) importedValues[field.key] = String(row[matchingHeader]).trim();
+        });
+      });
+
+      const importedCount = Object.keys(importedValues).length;
+      if (!importedCount) {
+        onShowToast('warning', 'لم يتم العثور على حقول مطابقة', 'تأكد أن ملف Excel يحتوي أسماء حقول العسكري المعروفة.');
+        return;
+      }
+
+      setFieldValues((current) => ({ ...current, ...importedValues }));
+      const embeddedFiles = Array.from(readEmbeddedFilesSheet(workbook, PERSONNEL_ATTACHMENTS_SHEET).values()).flat();
+      if (embeddedFiles.length > 0) {
+        const targetRecordKey = importedValues['الرقم العسكري'] || fieldValues['الرقم العسكري'] || record?.military_id || `seq-${record?.seq || 0}`;
+        const targetRecordName = importedValues['الاسم الرباعي واللقب'] || fieldValues['الاسم الرباعي واللقب'] || record?.fullname || 'منتسب';
+        const existingFiles = await listPersonnelFiles(targetRecordKey);
+        for (const embeddedFile of embeddedFiles) {
+          const restoredFile = await dataUrlToFile(embeddedFile.dataUrl, embeddedFile.name, embeddedFile.type);
+          const alreadyExists = existingFiles.some((stored) => stored.fileName === restoredFile.name && stored.fileSize === restoredFile.size);
+          if (!alreadyExists) await savePersonnelFile(targetRecordKey, targetRecordName, restoredFile);
+        }
+      }
+      setIsModified(true);
+      setValidationError(null);
+      onShowToast('success', 'تم رفع ملف العسكري', `تمت تعبئة ${importedCount} حقلاً واستعادة المرفقات المحفوظة. راجع البيانات ثم اضغط حفظ التغييرات.`);
+    } catch {
+      onShowToast('warning', 'تعذر قراءة ملف Excel', 'تأكد من اختيار ملف Excel صالح يحتوي بيانات العسكري.');
+    } finally {
+      if (excelInputRef.current) excelInputRef.current.value = '';
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-200">
       {/* CTkToplevel Window Simulation */}
@@ -244,7 +325,31 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
+          <div className="flex flex-wrap items-center justify-end gap-2 text-xs">
+            <button
+              type="button"
+              onClick={() => excelInputRef.current?.click()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-bold cursor-pointer transition-colors"
+            >
+              <FileUp className="w-3.5 h-3.5" />
+              رفع Excel
+            </button>
+            <button
+              type="button"
+              onClick={() => void exportPersonnelExcel()}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[11px] font-bold cursor-pointer transition-colors"
+            >
+              <FileDown className="w-3.5 h-3.5" />
+              تحميل Excel
+            </button>
+            <input
+              ref={excelInputRef}
+              type="file"
+              accept=".xlsx,.xls,.xlsm,.csv"
+              onChange={(event) => void importPersonnelExcel(event.target.files?.[0])}
+              className="sr-only"
+              aria-label="اختيار ملف Excel للعسكري"
+            />
             <span
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-[11px] font-mono"
               style={{
