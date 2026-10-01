@@ -4,6 +4,8 @@ import * as XLSX from 'xlsx';
 import { normalizeArabic } from '../mockData';
 import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
+import { ImagePreviewButton } from './ImagePreviewButton';
 
 const MARTYRS_STORAGE_KEY = 'military_martyr_records_v1';
 const WOUNDED_STORAGE_KEY = 'military_wounded_records_v1';
@@ -137,6 +139,7 @@ const WOUNDED_FORM_FIELDS: FormField[] = [
 export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShowToast, onBack }) => {
   const [activeRegister, setActiveRegister] = useState<RegisterType>('martyrs');
   const [records, setRecords] = useState<MartyrRecord[]>(() => readRecords(MARTYRS_STORAGE_KEY));
+  const selection = useExcelSelection(records, (record) => record.id);
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -172,6 +175,7 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
   };
 
   const changeRegister = (register: RegisterType) => {
+    selection.reset();
     setActiveRegister(register);
     setRecords(readRecords(REGISTER_CONFIG[register].storageKey));
     setQuery('');
@@ -235,11 +239,11 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
     onShowToast('success', 'تم حذف السجل', `حُذف سجل ${record.martyrName}.`);
   };
 
-  const exportExcel = () => {
+  const exportExcel = (toExport = records) => {
     const headers = activeRegister === 'martyrs'
       ? ['التسلسل', 'اسم الشهيد', 'تاريخ الاستشهاد', 'مكان الاستشهاد', 'عدد الزوجات', 'عدد الأطفال', 'اسم الزوجة', 'الملاحظات']
       : ['التسلسل', 'اسم الجريح', 'تاريخ الإصابة', 'مكان الإصابة', 'نسبة العجز', 'تأييد الإصابة', 'الملاحظات'];
-    const rows = records.map((record) => activeRegister === 'martyrs' ? {
+    const rows = toExport.map((record) => activeRegister === 'martyrs' ? {
       التسلسل: record.sequence,
       'اسم الشهيد': record.martyrName,
       'تاريخ الاستشهاد': record.martyrdomDate,
@@ -265,15 +269,15 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, registerConfig.tabLabel);
     if (activeRegister === 'wounded') {
-      appendEmbeddedFilesSheet(workbook, WOUNDED_IMAGES_SHEET, records.map((record, index) => ({
+      appendEmbeddedFilesSheet(workbook, WOUNDED_IMAGES_SHEET, toExport.map((record, index) => ({
         recordKey: record.sequence || String(index + 1),
         name: record.injuryProofName || 'تأييد_الإصابة',
         type: record.injuryProofDataUrl.match(/^data:([^;,]+)/)?.[1] || 'image/jpeg',
         dataUrl: record.injuryProofDataUrl,
       })));
     }
-    XLSX.writeFile(workbook, `سجل_${registerConfig.tabLabel}.xlsx`);
-    onShowToast('success', `تم تحميل ملف ${registerConfig.tabLabel}`, `تم تصدير ${records.length} سجل${activeRegister === 'wounded' ? ' مع صور تأييد الإصابة' : ''} في ملف Excel مستقل.`);
+    XLSX.writeFile(workbook, `سجل_${registerConfig.tabLabel}${toExport === records ? '' : '_المحدد'}.xlsx`);
+    onShowToast('success', `تم تحميل ملف ${registerConfig.tabLabel}`, `تم تصدير ${toExport.length} سجل${activeRegister === 'wounded' ? ' مع صور تأييد الإصابة' : ''} في ملف Excel مستقل.`);
   };
 
   const importExcel = async (file: File | undefined) => {
@@ -463,12 +467,13 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
             </button>
             <button
               type="button"
-              onClick={exportExcel}
+              onClick={() => exportExcel()}
               className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center justify-center gap-2 cursor-pointer"
             >
               <FileDown className="w-4 h-4" />
               تحميل Excel {registerConfig.tabLabel}
             </button>
+            <SelectedExcelButton enabled={selection.enabled} count={selection.selectedRecords.length} onAction={() => selection.run(exportExcel, () => onShowToast('warning', 'لا توجد سجلات محددة', `حدد ${registerConfig.singularLabel} واحدًا على الأقل.`))} onCancel={selection.reset} />
             <input
               ref={excelInputRef}
               type="file"
@@ -555,6 +560,7 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
                 {form.injuryProofDataUrl && (
                   <div className="mt-3 flex items-center gap-3">
                     <img src={form.injuryProofDataUrl} alt="معاينة تأييد الإصابة" className="w-20 h-16 rounded-lg object-cover border border-neutral-600" />
+                    <ImagePreviewButton src={form.injuryProofDataUrl} name={form.injuryProofName || 'تأييد الإصابة'} />
                     <button
                       type="button"
                       onClick={() => setForm((current) => ({ ...current, injuryProofName: '', injuryProofDataUrl: '' }))}
@@ -605,10 +611,11 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
               </div>
         {filteredRecords.map((record) => (
           <div key={record.id} className="border-b last:border-b-0" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>
+            <div className="flex items-center">{selection.enabled && <div className="px-3"><ExcelRowCheckbox checked={selection.selectedIds.has(record.id)} label={record.martyrName} onChange={() => selection.toggle(record.id)} /></div>}
             <button
               type="button"
               onClick={() => setExpandedId(expandedId === record.id ? null : record.id)}
-              className="w-full grid grid-cols-[64px_minmax(220px,1.5fr)_minmax(150px,1fr)_minmax(180px,1fr)_52px] items-center px-4 py-3 text-right hover:bg-red-500/5 cursor-pointer"
+              className="flex-1 grid grid-cols-[64px_minmax(220px,1.5fr)_minmax(150px,1fr)_minmax(180px,1fr)_52px] items-center px-4 py-3 text-right hover:bg-red-500/5 cursor-pointer"
               aria-expanded={expandedId === record.id}
               aria-label={`فتح تفاصيل ${registerConfig.singularLabel} ${record.martyrName}`}
             >
@@ -618,6 +625,7 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
               <span className="text-xs text-neutral-300 truncate pl-3">{record.martyrdomPlace || '—'}</span>
               <span className="flex justify-center">{expandedId === record.id ? <ChevronUp className="w-4 h-4 text-red-400" /> : <ChevronDown className="w-4 h-4 text-neutral-400" />}</span>
             </button>
+            </div>
 
             {expandedId === record.id && (
               <div className="px-4 pb-4 grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -645,16 +653,14 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
                   </div>
                 ))}
                 {activeRegister === 'wounded' && record.injuryProofDataUrl && (
-                  <a
-                    href={record.injuryProofDataUrl}
-                    target="_blank"
-                    rel="noreferrer"
+                  <div
                     className="col-span-2 md:col-span-4 rounded-xl border p-3 block"
                     style={{ borderColor: isDarkMode ? '#3b3b3b' : '#e2e8f0' }}
                   >
                     <div className="text-[9px] text-neutral-500 mb-2">صورة تأييد الإصابة</div>
                     <img src={record.injuryProofDataUrl} alt={`تأييد إصابة ${record.martyrName}`} className="max-h-52 w-full rounded-lg object-contain bg-black/20" />
-                  </a>
+                    <div className="mt-2"><ImagePreviewButton src={record.injuryProofDataUrl} name={record.injuryProofName || `تأييد إصابة ${record.martyrName}`} /></div>
+                  </div>
                 )}
                 <div className="col-span-2 md:col-span-4 flex flex-wrap items-center gap-2 pt-1">
                   <button

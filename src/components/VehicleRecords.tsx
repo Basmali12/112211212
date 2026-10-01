@@ -21,6 +21,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { normalizeArabic } from '../mockData';
 import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
+import { ImagePreviewButton } from './ImagePreviewButton';
 
 const STORAGE_KEY = 'military_vehicle_records_v1';
 const AUTHORIZATION_IMAGES_SHEET = 'صور_تخويل_الآليات';
@@ -31,6 +33,8 @@ interface VehicleRecord {
   chassisNumber: string;
   vehicleColor: string;
   vehicleNumber: string;
+  engineSize: string;
+  fuelType: string;
   driverName: string;
   vehicleOwnership: string;
   authorizationImageName: string;
@@ -53,6 +57,8 @@ const EMPTY_FORM: VehicleFormState = {
   chassisNumber: '',
   vehicleColor: '',
   vehicleNumber: '',
+  engineSize: '',
+  fuelType: '',
   driverName: '',
   vehicleOwnership: '',
   authorizationImageName: '',
@@ -83,6 +89,7 @@ const FIELD_LABELS: Array<{ key: keyof VehicleFormState; label: string; placehol
   { key: 'chassisNumber', label: 'رقم الشاصي', placeholder: 'أدخل رقم الشاصي' },
   { key: 'vehicleColor', label: 'لون العجلة', placeholder: 'أدخل لون العجلة' },
   { key: 'vehicleNumber', label: 'رقم العجلة', placeholder: 'أدخل رقم العجلة' },
+  { key: 'engineSize', label: 'حجم المحرك', placeholder: 'مثال: 2000 سي سي' },
   { key: 'driverName', label: 'اسم السائق', placeholder: 'أدخل اسم السائق' },
   { key: 'vehicleOwnership', label: 'عائدية العجلة', placeholder: 'أدخل عائدية العجلة' },
 ];
@@ -93,6 +100,7 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
   onShowToast,
 }) => {
   const [records, setRecords] = useState<VehicleRecord[]>(readRecords);
+  const selection = useExcelSelection(records, (record) => record.id);
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -158,6 +166,8 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
       chassisNumber: record.chassisNumber,
       vehicleColor: record.vehicleColor,
       vehicleNumber: record.vehicleNumber,
+      engineSize: record.engineSize || '',
+      fuelType: record.fuelType || '',
       driverName: record.driverName,
       vehicleOwnership: record.vehicleOwnership,
       authorizationImageName: record.authorizationImageName || '',
@@ -229,13 +239,15 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
     onShowToast('success', 'تم حذف صورة التخويل', `حُذفت صورة تخويل عجلة السائق ${record.driverName}.`);
   };
 
-  const downloadExcel = () => {
-    const rows = records.map((record, index) => ({
+  const downloadExcel = (toExport = records) => {
+    const rows = toExport.map((record, index) => ({
       'ت': index + 1,
       'نوع العجلة': record.vehicleType,
       'رقم الشاصي': record.chassisNumber,
       'لون العجلة': record.vehicleColor,
       'رقم العجلة': record.vehicleNumber,
+      'حجم المحرك': record.engineSize || '',
+      'الوقود': record.fuelType || '',
       'اسم السائق': record.driverName,
       'عائدية العجلة': record.vehicleOwnership,
       'اسم صورة التخويل': record.authorizationImageName || '',
@@ -243,18 +255,18 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
     }));
     const worksheet = rows.length > 0
       ? XLSX.utils.json_to_sheet(rows)
-      : XLSX.utils.aoa_to_sheet([['ت', 'نوع العجلة', 'رقم الشاصي', 'لون العجلة', 'رقم العجلة', 'اسم السائق', 'عائدية العجلة', 'اسم صورة التخويل', 'الملاحظات']]);
+      : XLSX.utils.aoa_to_sheet([['ت', 'نوع العجلة', 'رقم الشاصي', 'لون العجلة', 'رقم العجلة', 'حجم المحرك', 'الوقود', 'اسم السائق', 'عائدية العجلة', 'اسم صورة التخويل', 'الملاحظات']]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'سجل_الآليات');
 
-    appendEmbeddedFilesSheet(workbook, AUTHORIZATION_IMAGES_SHEET, records.map((record, index) => ({
+    appendEmbeddedFilesSheet(workbook, AUTHORIZATION_IMAGES_SHEET, toExport.map((record, index) => ({
       recordKey: String(index + 1),
       name: record.authorizationImageName || 'تخويل_العجلة',
       type: record.authorizationImageDataUrl.match(/^data:([^;,]+)/)?.[1] || 'image/jpeg',
       dataUrl: record.authorizationImageDataUrl,
     })));
-    XLSX.writeFile(workbook, 'سجل_السيارات_والآليات.xlsx');
-    onShowToast('success', 'تم تحميل Excel', 'تم تنزيل سجل السيارات والآليات مع صور التخويل المحفوظة.');
+    XLSX.writeFile(workbook, `سجل_السيارات_والآليات${toExport === records ? '' : '_المحدد'}.xlsx`);
+    onShowToast('success', 'تم تحميل Excel', `تم تنزيل ${toExport.length} سجل مع صور التخويل المحفوظة.`);
   };
 
   const uploadExcel = async (file: File | undefined) => {
@@ -263,6 +275,9 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '', raw: false });
+      const headerCells = XLSX.utils.sheet_to_json<string[]>(worksheet, { header: 1, range: 0 })[0] || [];
+      const hasEngineSize = headerCells.includes('حجم المحرك');
+      const hasFuelType = headerCells.includes('الوقود');
       const authorizationImages = readEmbeddedFilesSheet(workbook, AUTHORIZATION_IMAGES_SHEET);
       const now = new Date().toISOString();
       const imported = rows.map((row, index): VehicleRecord | null => {
@@ -278,6 +293,8 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
           chassisNumber: String(row['رقم الشاصي'] ?? '').trim(),
           vehicleColor: String(row['لون العجلة'] ?? row['لون السيارة'] ?? '').trim(),
           vehicleNumber,
+          engineSize: String(row['حجم المحرك'] ?? '').trim(),
+          fuelType: String(row['الوقود'] ?? '').trim(),
           driverName,
           vehicleOwnership: String(row['عائدية العجلة'] ?? '').trim(),
           authorizationImageName: authorizationImageDataUrl ? imageEntry?.name || 'تخويل_العجلة' : '',
@@ -310,6 +327,8 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
             id: existing.id,
             createdAt: existing.createdAt,
             updatedAt: now,
+            engineSize: hasEngineSize ? importedRecord.engineSize : existing.engineSize || '',
+            fuelType: hasFuelType ? importedRecord.fuelType : existing.fuelType || '',
             authorizationImageName: importedHasImage
               ? importedRecord.authorizationImageName
               : existing.authorizationImageName || '',
@@ -360,7 +379,7 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
               }}
             >
               <ArrowRight className="w-4 h-4" />
-              <span>رجوع إلى ملفات الفوج</span>
+              <span>رجوع</span>
             </button>
             <div>
               <div className="flex items-center gap-2 mb-1">
@@ -381,10 +400,11 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
               <span>رفع Excel</span>
             </button>
             <input ref={excelInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={(event) => void uploadExcel(event.target.files?.[0])} />
-            <button type="button" onClick={downloadExcel} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
+            <button type="button" onClick={() => downloadExcel()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center justify-center gap-2 cursor-pointer shadow-lg active:scale-95">
               <Download className="w-4 h-4" />
               <span>تحميل Excel</span>
             </button>
+            <SelectedExcelButton enabled={selection.enabled} count={selection.selectedRecords.length} onAction={() => selection.run(downloadExcel, () => onShowToast('warning', 'لا توجد سجلات محددة', 'حدد سيارة واحدة على الأقل.'))} onCancel={selection.reset} />
             <button
               type="button"
               onClick={openAddForm}
@@ -458,6 +478,19 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
                 />
               </label>
             ))}
+            <label className="text-[11px] font-bold text-neutral-300">
+              الوقود
+              <select
+                value={form.fuelType}
+                onChange={(event) => updateForm('fuelType', event.target.value)}
+                className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right"
+                style={inputStyle}
+              >
+                <option value="">اختر الوقود</option>
+                <option value="كاز">كاز</option>
+                <option value="بانزين">بانزين</option>
+              </select>
+            </label>
             <div className="sm:col-span-2 lg:col-span-3 rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3e3e3e' : '#cbd5e1' }}>
               <div className="text-[11px] font-bold text-neutral-300 mb-2">تخويل العجلة</div>
               <label className="min-h-24 rounded-xl border border-dashed border-teal-500/60 flex items-center justify-center gap-3 px-4 py-3 cursor-pointer hover:bg-teal-500/5">
@@ -468,6 +501,7 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
               {form.authorizationImageDataUrl && (
                 <div className="mt-3 flex flex-wrap items-center gap-3">
                   <img src={form.authorizationImageDataUrl} alt="معاينة تخويل العجلة" className="w-28 h-20 rounded-lg object-cover border border-teal-500/30" />
+                  <ImagePreviewButton src={form.authorizationImageDataUrl} name={form.authorizationImageName || 'تخويل العجلة'} />
                   <button type="button" onClick={() => setForm((current) => ({ ...current, authorizationImageName: '', authorizationImageDataUrl: '' }))} className="px-3 py-2 rounded-lg text-[11px] font-bold text-red-400 bg-red-500/10 border border-red-500/20 cursor-pointer">حذف الصورة من النموذج</button>
                   <span className="text-[10px] text-neutral-500">يمكن اختيار صورة جديدة لاستبدال الحالية.</span>
                 </div>
@@ -510,10 +544,10 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
         }}
       >
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] text-right border-collapse">
+          <table className="w-full min-w-[1380px] text-right border-collapse">
             <thead>
               <tr style={{ backgroundColor: isDarkMode ? '#2b2b2b' : '#f1f5f9' }}>
-                {['ت', 'نوع العجلة', 'رقم الشاصي', 'لون العجلة', 'رقم العجلة', 'اسم السائق', 'عائدية العجلة', 'الإجراءات'].map((heading) => (
+                {(selection.enabled ? ['تحديد', 'ت', 'نوع العجلة', 'رقم الشاصي', 'لون العجلة', 'رقم العجلة', 'حجم المحرك', 'الوقود', 'اسم السائق', 'عائدية العجلة', 'الإجراءات'] : ['ت', 'نوع العجلة', 'رقم الشاصي', 'لون العجلة', 'رقم العجلة', 'حجم المحرك', 'الوقود', 'اسم السائق', 'عائدية العجلة', 'الإجراءات']).map((heading) => (
                   <th key={heading} className="px-3 py-3 text-[11px] font-bold border-b whitespace-nowrap" style={{ borderColor: isDarkMode ? '#3d3d3d' : '#cbd5e1' }}>
                     {heading}
                   </th>
@@ -524,11 +558,14 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
               {filteredRecords.map((record, index) => (
                 <React.Fragment key={record.id}>
                   <tr className="hover:bg-teal-500/5 transition-colors">
+                    {selection.enabled && <td className="px-3 py-3 border-b" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}><ExcelRowCheckbox checked={selection.selectedIds.has(record.id)} label={record.driverName} onChange={() => selection.toggle(record.id)} /></td>}
                     <td className="px-3 py-3 text-[11px] border-b" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{index + 1}</td>
                     <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.vehicleType}</td>
                     <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap font-mono" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.chassisNumber || '—'}</td>
                     <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.vehicleColor || '—'}</td>
                     <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap font-mono" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.vehicleNumber}</td>
+                    <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.engineSize || '—'}</td>
+                    <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.fuelType || '—'}</td>
                     <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap font-bold" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.driverName}</td>
                     <td className="px-3 py-3 text-[11px] border-b whitespace-nowrap" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>{record.vehicleOwnership || '—'}</td>
                     <td className="px-3 py-2 border-b" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>
@@ -547,13 +584,15 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
                   </tr>
                   {expandedId === record.id && (
                     <tr>
-                      <td colSpan={8} className="px-4 py-3 border-b" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0', backgroundColor: isDarkMode ? '#181f1f' : '#f0fdfa' }}>
+                      <td colSpan={selection.enabled ? 11 : 10} className="px-4 py-3 border-b" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0', backgroundColor: isDarkMode ? '#181f1f' : '#f0fdfa' }}>
                         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
                           {[
                             ['نوع العجلة', record.vehicleType],
                             ['رقم الشاصي', record.chassisNumber],
                             ['لون العجلة', record.vehicleColor],
                             ['رقم العجلة', record.vehicleNumber],
+                            ['حجم المحرك', record.engineSize],
+                            ['الوقود', record.fuelType],
                             ['اسم السائق', record.driverName],
                             ['عائدية العجلة', record.vehicleOwnership],
                             ['الملاحظات', record.notes],
@@ -571,7 +610,7 @@ export const VehicleRecords: React.FC<VehicleRecordsProps> = ({
                               <div className="min-w-0"><div className="text-[10px] text-neutral-400">تخويل العجلة</div><div className="text-[11px] font-bold truncate">{record.authorizationImageName || 'صورة التخويل'}</div></div>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
-                              <button type="button" onClick={() => setPreviewRecord(record)} className="px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Maximize2 className="w-3.5 h-3.5" /> فتح الصورة</button>
+                              <button type="button" onClick={() => setPreviewRecord(record)} className="px-3 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Maximize2 className="w-3.5 h-3.5" /> عرض الصورة</button>
                               <button type="button" onClick={() => openEditForm(record)} className="px-3 py-2 rounded-lg bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Pencil className="w-3.5 h-3.5" /> تعديل/استبدال</button>
                               <button type="button" onClick={() => setPendingImageDeleteRecord(record)} className="px-3 py-2 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-[10px] font-bold flex items-center gap-1.5 cursor-pointer"><Trash2 className="w-3.5 h-3.5" /> حذف الصورة</button>
                             </div>

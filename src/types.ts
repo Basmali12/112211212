@@ -16,7 +16,7 @@ export interface MilitaryRecord {
   details?: Record<string, string>;
 }
 
-export type SimulatorView = 'home' | 'settings' | 'blank' | 'casualties' | 'weapons' | 'finance' | 'communications';
+export type SimulatorView = 'home' | 'settings' | 'blank' | 'casualties' | 'weapons' | 'finance' | 'communications' | 'vehicles' | 'attendance';
 
 export interface ToastNotification {
   id: string;

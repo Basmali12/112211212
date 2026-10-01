@@ -3,6 +3,7 @@ import { ArrowRight, ChevronDown, ChevronUp, FileDown, FileUp, Pencil, Plus, Sea
 import * as XLSX from 'xlsx';
 import { normalizeArabic } from '../mockData';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
 
 const STORAGE_KEY = 'military_faulty_weapons_records_v1';
 
@@ -56,6 +57,7 @@ const readCell = (row: Record<string, unknown>, keys: string[]) => {
 
 export const FaultyWeaponsRecords: React.FC<FaultyWeaponsRecordsProps> = ({ isDarkMode, onBack, onShowToast }) => {
   const [records, setRecords] = useState<FaultyWeaponRecord[]>(readRecords);
+  const selection = useExcelSelection(records, (record) => record.id);
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -138,9 +140,9 @@ export const FaultyWeaponsRecords: React.FC<FaultyWeaponsRecordsProps> = ({ isDa
     onShowToast('success', 'تم حذف السلاح', `حُذف سجل السلاح ${record.weaponType}.`);
   };
 
-  const exportExcel = () => {
+  const exportExcel = (toExport = records) => {
     const headers = ['التسلسل', 'نوع السلاح', 'رقم السلاح', 'نوع العطل', 'الملاحظات'];
-    const rows = records.map((record) => ({
+    const rows = toExport.map((record) => ({
       التسلسل: record.sequence,
       'نوع السلاح': record.weaponType,
       'رقم السلاح': record.weaponNumber,
@@ -151,8 +153,8 @@ export const FaultyWeaponsRecords: React.FC<FaultyWeaponsRecordsProps> = ({ isDa
     sheet['!cols'] = [{ wch: 12 }, { wch: 26 }, { wch: 22 }, { wch: 30 }, { wch: 40 }];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, 'الأسلحة_العاطلة_والشاغل');
-    XLSX.writeFile(workbook, 'سجل_الأسلحة_العاطلة_والشاغل.xlsx');
-    onShowToast('success', 'تم تحميل ملف الأسلحة', `تم تصدير ${records.length} سجل.`);
+    XLSX.writeFile(workbook, `سجل_الأسلحة_العاطلة_والشاغل${toExport === records ? '' : '_المحدد'}.xlsx`);
+    onShowToast('success', 'تم تحميل ملف الأسلحة', `تم تصدير ${toExport.length} سجل.`);
   };
 
   const importExcel = async (file: File | undefined) => {
@@ -206,7 +208,8 @@ export const FaultyWeaponsRecords: React.FC<FaultyWeaponsRecordsProps> = ({ isDa
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={openForm} className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-amber-600 hover:bg-amber-500 flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" /> إضافة جديدة</button>
             <button type="button" onClick={() => excelInputRef.current?.click()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 flex items-center gap-2 cursor-pointer"><FileUp className="w-4 h-4" /> رفع Excel</button>
-            <button type="button" onClick={exportExcel} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center gap-2 cursor-pointer"><FileDown className="w-4 h-4" /> تحميل Excel</button>
+            <button type="button" onClick={() => exportExcel()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center gap-2 cursor-pointer"><FileDown className="w-4 h-4" /> تحميل Excel</button>
+            <SelectedExcelButton enabled={selection.enabled} count={selection.selectedRecords.length} onAction={() => selection.run(exportExcel, () => onShowToast('warning', 'لا توجد سجلات محددة', 'حدد سلاحًا واحدًا على الأقل.'))} onCancel={selection.reset} />
             <input ref={excelInputRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={(event) => void importExcel(event.target.files?.[0])} className="sr-only" aria-label="اختيار ملف Excel الأسلحة العاطلة والشاغل" />
           </div>
         </div>
@@ -234,7 +237,7 @@ export const FaultyWeaponsRecords: React.FC<FaultyWeaponsRecordsProps> = ({ isDa
       <div className="rounded-2xl border overflow-hidden" style={{ backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff', borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>
         {filteredRecords.length > 0 && <div className="overflow-x-auto"><div className="min-w-[680px]">
           <div className="grid grid-cols-[64px_minmax(180px,1fr)_minmax(160px,1fr)_minmax(190px,1fr)_52px] px-4 py-3 border-b text-[11px] font-bold text-neutral-300" style={{ backgroundColor: isDarkMode ? '#292929' : '#f1f5f9', borderColor: isDarkMode ? '#3f3f3f' : '#cbd5e1' }}><span>ت</span><span>نوع السلاح</span><span>رقم السلاح</span><span>نوع العطل</span><span>التفاصيل</span></div>
-          {filteredRecords.map((record) => <div key={record.id} className="border-b last:border-b-0" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}><button type="button" onClick={() => { setExpandedId(expandedId === record.id ? null : record.id); setPendingDeleteId(null); }} aria-expanded={expandedId === record.id} aria-label={`فتح تفاصيل السلاح ${record.weaponType}`} className="w-full grid grid-cols-[64px_minmax(180px,1fr)_minmax(160px,1fr)_minmax(190px,1fr)_52px] items-center px-4 py-3 text-right hover:bg-amber-500/5 cursor-pointer"><span>{record.sequence}</span><span className="font-bold truncate">{record.weaponType}</span><span className="text-xs truncate">{record.weaponNumber || '—'}</span><span className="text-xs truncate">{record.faultType || '—'}</span><span className="flex justify-center">{expandedId === record.id ? <ChevronUp className="w-4 h-4 text-amber-400" /> : <ChevronDown className="w-4 h-4 text-neutral-400" />}</span></button>{expandedId === record.id && <div className="px-4 pb-4 grid grid-cols-2 md:grid-cols-5 gap-3">{([['التسلسل', record.sequence], ['نوع السلاح', record.weaponType], ['رقم السلاح', record.weaponNumber], ['نوع العطل', record.faultType], ['الملاحظات', record.notes]] as Array<[string, string]>).map(([label, value]) => <div key={label} className="rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3b3b3b' : '#e2e8f0' }}><div className="text-[9px] text-neutral-500 mb-1">{label}</div><div className="text-[11px] font-bold break-words">{value || '—'}</div></div>)}<div className="col-span-2 md:col-span-5 flex flex-wrap items-center gap-2"><button type="button" onClick={() => openEditForm(record)} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 flex items-center gap-2 cursor-pointer"><Pencil className="w-4 h-4" /> تعديل</button><button type="button" onClick={() => setPendingDeleteId(record.id)} className="px-4 py-2.5 rounded-xl text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 flex items-center gap-2 cursor-pointer"><Trash2 className="w-4 h-4" /> حذف</button></div></div>}</div>)}
+          {filteredRecords.map((record) => <div key={record.id} className="border-b last:border-b-0" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}><div className="flex items-center">{selection.enabled && <div className="px-3"><ExcelRowCheckbox checked={selection.selectedIds.has(record.id)} label={record.weaponType} onChange={() => selection.toggle(record.id)} /></div>}<button type="button" onClick={() => { setExpandedId(expandedId === record.id ? null : record.id); setPendingDeleteId(null); }} aria-expanded={expandedId === record.id} aria-label={`فتح تفاصيل السلاح ${record.weaponType}`} className="flex-1 grid grid-cols-[64px_minmax(180px,1fr)_minmax(160px,1fr)_minmax(190px,1fr)_52px] items-center px-4 py-3 text-right hover:bg-amber-500/5 cursor-pointer"><span>{record.sequence}</span><span className="font-bold truncate">{record.weaponType}</span><span className="text-xs truncate">{record.weaponNumber || '—'}</span><span className="text-xs truncate">{record.faultType || '—'}</span><span className="flex justify-center">{expandedId === record.id ? <ChevronUp className="w-4 h-4 text-amber-400" /> : <ChevronDown className="w-4 h-4 text-neutral-400" />}</span></button></div>{expandedId === record.id && <div className="px-4 pb-4 grid grid-cols-2 md:grid-cols-5 gap-3">{([['التسلسل', record.sequence], ['نوع السلاح', record.weaponType], ['رقم السلاح', record.weaponNumber], ['نوع العطل', record.faultType], ['الملاحظات', record.notes]] as Array<[string, string]>).map(([label, value]) => <div key={label} className="rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3b3b3b' : '#e2e8f0' }}><div className="text-[9px] text-neutral-500 mb-1">{label}</div><div className="text-[11px] font-bold break-words">{value || '—'}</div></div>)}<div className="col-span-2 md:col-span-5 flex flex-wrap items-center gap-2"><button type="button" onClick={() => openEditForm(record)} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 flex items-center gap-2 cursor-pointer"><Pencil className="w-4 h-4" /> تعديل</button><button type="button" onClick={() => setPendingDeleteId(record.id)} className="px-4 py-2.5 rounded-xl text-xs font-bold text-red-400 bg-red-500/10 border border-red-500/20 flex items-center gap-2 cursor-pointer"><Trash2 className="w-4 h-4" /> حذف</button></div></div>}</div>)}
         </div></div>}
         {filteredRecords.length === 0 && <div className="min-h-64 flex flex-col items-center justify-center text-center p-8"><h3 className="text-sm font-bold mb-1">لا توجد سجلات حاليًا</h3><p className="text-xs text-neutral-400">اضغط على إضافة جديدة لإدخال أول سجل.</p></div>}
       </div>

@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ArrowRight, Download, FileImage, FileText, LoaderCircle, Plus, Trash2, X } from 'lucide-react';
 import type { MilitaryRecord } from '../types';
 import {
@@ -152,8 +153,8 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
     setPreviewTitle('');
   };
 
-  return (
-    <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-5">
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/75 backdrop-blur-xs p-3 sm:p-5">
       <div
         className="w-full max-w-5xl max-h-[94vh] rounded-2xl border shadow-2xl overflow-hidden flex flex-col"
         style={{
@@ -311,7 +312,7 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
                                 </div>
                               </div>
                               <span className="text-[11px] font-bold text-blue-400 shrink-0 flex items-center gap-1.5">
-                                {fileKind === 'image' ? 'فتح الصورة' : <><Download className="w-3.5 h-3.5" /> تنزيل وفتح خارج البرنامج</>}
+                                {fileKind === 'image' ? 'عرض الصورة' : <><Download className="w-3.5 h-3.5" /> تنزيل وفتح خارج البرنامج</>}
                               </span>
                             </button>
                             <button
@@ -360,6 +361,7 @@ export const PersonnelPdfFilesModal: React.FC<PersonnelPdfFilesModalProps> = ({
         }}
         onCancel={() => setPendingDeleteFile(null)}
       />
-    </div>
+    </div>,
+    document.body,
   );
 };

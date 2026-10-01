@@ -15,6 +15,8 @@ import {
   Crosshair,
   WalletCards,
   Radio,
+  Truck,
+  CalendarDays,
   Minimize2,
   Maximize2,
   X
@@ -274,6 +276,30 @@ export default function App() {
               >
                 <Settings className={`w-4 h-4 ${activeSimulatorView === 'settings' ? 'rotate-90 transition-transform duration-300' : ''}`} />
                 <span>⚙️ الإعدادات</span>
+              </button>
+              <button
+                onClick={() => setActiveSimulatorView('vehicles')}
+                className={`nav-tab flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeSimulatorView === 'vehicles'
+                    ? 'nav-tab-active text-white'
+                    : 'text-neutral-400 hover:text-white hover:bg-emerald-950/35'
+                }`}
+                title="فتح سجل الآليات"
+              >
+                <Truck className="w-4 h-4" />
+                <span>الآليات</span>
+              </button>
+              <button
+                onClick={() => setActiveSimulatorView('attendance')}
+                className={`nav-tab flex items-center gap-2 px-5 py-3 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+                  activeSimulatorView === 'attendance'
+                    ? 'nav-tab-active text-white'
+                    : 'text-neutral-400 hover:text-white hover:bg-emerald-950/35'
+                }`}
+                title="فتح سجلات الغياب والحضور"
+              >
+                <CalendarDays className="w-4 h-4" />
+                <span>الغيابات والحضور</span>
               </button>
             {isInstallable && (
               <button

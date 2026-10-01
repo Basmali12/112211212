@@ -6,6 +6,8 @@ import * as XLSX from 'xlsx';
 import { normalizeArabic } from '../mockData';
 import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
 import { ConfirmDialog } from './ConfirmDialog';
+import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
+import { ImagePreviewButton } from './ImagePreviewButton';
 
 const STORAGE_KEY = 'military_financial_records_v1';
 const FINANCIAL_ATTACHMENTS_SHEET = 'مرفقات_السجل_المالي';
@@ -87,6 +89,7 @@ const readExcelCell = (row: Record<string, unknown>, names: string[]) => {
 
 export const FinancialRecords: React.FC<FinancialRecordsProps> = ({ isDarkMode, onBack, onShowToast }) => {
   const [records, setRecords] = useState<FinancialRecord[]>(readRecords);
+  const selection = useExcelSelection(records, (record) => record.id);
   const [query, setQuery] = useState('');
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -207,12 +210,12 @@ export const FinancialRecords: React.FC<FinancialRecordsProps> = ({ isDarkMode, 
     onShowToast('success', 'تم حذف السجل المالي', `حُذف سجل ${record.beneficiaryName}.`);
   };
 
-  const exportExcel = () => {
+  const exportExcel = (toExport = records) => {
     const headers = [
       'التسلسل', 'اسم المستفيد', 'رقم الكي كارد', 'الفوج أو القسم', 'استلام المبلغ',
       'صُرفت لشراء', 'رقم أمر الصرف', 'تاريخ الصرف', 'الملاحظات', 'اسم المرفق',
     ];
-    const rows = records.map((record) => ({
+    const rows = toExport.map((record) => ({
       التسلسل: record.sequence,
       'اسم المستفيد': record.beneficiaryName,
       'رقم الكي كارد': record.keyCardNumber,
@@ -231,14 +234,14 @@ export const FinancialRecords: React.FC<FinancialRecordsProps> = ({ isDarkMode, 
     ];
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, 'السجل المالي');
-    appendEmbeddedFilesSheet(workbook, FINANCIAL_ATTACHMENTS_SHEET, records.map((record, index) => ({
+    appendEmbeddedFilesSheet(workbook, FINANCIAL_ATTACHMENTS_SHEET, toExport.map((record, index) => ({
       recordKey: record.sequence || String(index + 1),
       name: record.attachmentName || 'مرفق_مالي',
       type: record.attachmentType || record.attachmentDataUrl.match(/^data:([^;,]+)/)?.[1] || 'application/octet-stream',
       dataUrl: record.attachmentDataUrl,
     })));
-    XLSX.writeFile(workbook, 'السجل_المالي.xlsx');
-    onShowToast('success', 'تم تحميل ملف السجل المالي', `تم تصدير ${records.length} سجل مالي مع الصور والمرفقات.`);
+    XLSX.writeFile(workbook, `السجل_المالي${toExport === records ? '' : '_المحدد'}.xlsx`);
+    onShowToast('success', 'تم تحميل ملف السجل المالي', `تم تصدير ${toExport.length} سجل مالي مع الصور والمرفقات.`);
   };
 
   const importExcel = async (file: File | undefined) => {
@@ -327,7 +330,8 @@ export const FinancialRecords: React.FC<FinancialRecordsProps> = ({ isDarkMode, 
           <div className="flex flex-wrap items-center gap-2">
             <button type="button" onClick={openAddForm} className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-500 flex items-center gap-2 cursor-pointer"><Plus className="w-4 h-4" /> إضافة حركة مالية</button>
             <button type="button" onClick={() => excelInputRef.current?.click()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-teal-600 hover:bg-teal-500 flex items-center gap-2 cursor-pointer"><FileUp className="w-4 h-4" /> رفع Excel</button>
-            <button type="button" onClick={exportExcel} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center gap-2 cursor-pointer"><FileDown className="w-4 h-4" /> تحميل Excel</button>
+            <button type="button" onClick={() => exportExcel()} className="px-4 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 flex items-center gap-2 cursor-pointer"><FileDown className="w-4 h-4" /> تحميل Excel</button>
+            <SelectedExcelButton enabled={selection.enabled} count={selection.selectedRecords.length} onAction={() => selection.run(exportExcel, () => onShowToast('warning', 'لا توجد سجلات محددة', 'حدد مستفيدًا واحدًا على الأقل.'))} onCancel={selection.reset} />
             <input ref={excelInputRef} type="file" accept=".xlsx,.xls,.xlsm,.csv" onChange={(event) => void importExcel(event.target.files?.[0])} className="sr-only" aria-label="اختيار ملف Excel للسجل المالي" />
           </div>
         </div>
@@ -345,7 +349,7 @@ export const FinancialRecords: React.FC<FinancialRecordsProps> = ({ isDarkMode, 
           <label className="text-[11px] font-bold text-neutral-300">صُرفت لشراء<input value={form.spentForPurchase} onChange={(event) => updateForm('spentForPurchase', event.target.value)} placeholder="اكتب المواد أو الغرض من الشراء" className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border text-right" style={inputStyle} /></label>
           <label className="text-[11px] font-bold text-neutral-300">رقم أمر الصرف<input value={form.paymentOrderNumber} onChange={(event) => updateForm('paymentOrderNumber', event.target.value)} placeholder="رقم أمر الصرف" className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border text-right" style={inputStyle} /></label>
           <label className="text-[11px] font-bold text-neutral-300">تاريخ الصرف<input type="date" value={form.paymentDate} onChange={(event) => updateForm('paymentDate', event.target.value)} className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border text-right" style={inputStyle} /></label>
-          <div className="sm:col-span-2 rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3e3e3e' : '#cbd5e1' }}><div className="text-[11px] font-bold text-neutral-300 mb-2">صورة أمر الصرف أو الإيصال</div><label className="min-h-20 rounded-xl border border-dashed border-emerald-500/60 flex items-center justify-center gap-3 px-4 py-3 cursor-pointer hover:bg-emerald-500/5"><FileImage className="w-6 h-6 text-emerald-400" /><span className="text-[10px] text-neutral-400">{form.attachmentName || 'اختيار صورة أو PDF'}</span><input type="file" accept="image/*,.pdf,application/pdf" onChange={(event) => selectAttachment(event.target.files?.[0])} className="sr-only" aria-label="اختيار صورة أمر الصرف أو الإيصال" /></label>{form.attachmentName && <button type="button" onClick={() => setForm((current) => ({ ...current, attachmentName: '', attachmentType: '', attachmentDataUrl: '' }))} className="mt-2 text-[10px] text-red-400 cursor-pointer">إزالة المرفق</button>}</div>
+          <div className="sm:col-span-2 rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3e3e3e' : '#cbd5e1' }}><div className="text-[11px] font-bold text-neutral-300 mb-2">صورة أمر الصرف أو الإيصال</div><label className="min-h-20 rounded-xl border border-dashed border-emerald-500/60 flex items-center justify-center gap-3 px-4 py-3 cursor-pointer hover:bg-emerald-500/5"><FileImage className="w-6 h-6 text-emerald-400" /><span className="text-[10px] text-neutral-400">{form.attachmentName || 'اختيار صورة أو PDF'}</span><input type="file" accept="image/*,.pdf,application/pdf" onChange={(event) => selectAttachment(event.target.files?.[0])} className="sr-only" aria-label="اختيار صورة أمر الصرف أو الإيصال" /></label>{form.attachmentDataUrl && isImageAttachment(form) && <div className="mt-2"><ImagePreviewButton src={form.attachmentDataUrl} name={form.attachmentName || 'مرفق السجل المالي'} /></div>}{form.attachmentName && <button type="button" onClick={() => setForm((current) => ({ ...current, attachmentName: '', attachmentType: '', attachmentDataUrl: '' }))} className="mt-2 text-[10px] text-red-400 cursor-pointer">إزالة المرفق</button>}</div>
           <label className="text-[11px] font-bold text-neutral-300 sm:col-span-2">الملاحظات<textarea value={form.notes} onChange={(event) => updateForm('notes', event.target.value)} placeholder="أدخل الملاحظات" rows={4} className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border text-right resize-y" style={inputStyle} /></label>
         </div>
         <div className="flex items-center gap-2 mt-4"><button type="submit" className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 cursor-pointer">{editingId ? 'حفظ التعديل' : 'حفظ السجل'}</button><button type="button" onClick={closeForm} className="px-5 py-2.5 rounded-xl text-xs font-bold bg-neutral-700 text-white cursor-pointer">إلغاء</button></div>
@@ -354,12 +358,12 @@ export const FinancialRecords: React.FC<FinancialRecordsProps> = ({ isDarkMode, 
       {!showForm && <div className="rounded-2xl border overflow-hidden" style={{ backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff', borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}>
         {filteredRecords.length > 0 && <div className="overflow-x-auto"><div className="min-w-[850px]">
           <div className="grid grid-cols-[54px_minmax(180px,1.2fr)_minmax(150px,1fr)_minmax(130px,0.8fr)_minmax(190px,1.3fr)_52px] px-4 py-3 border-b text-[11px] font-bold text-neutral-300" style={{ backgroundColor: isDarkMode ? '#292929' : '#f1f5f9', borderColor: isDarkMode ? '#3f3f3f' : '#cbd5e1' }}><span>ت</span><span>اسم المستفيد</span><span>الفوج أو القسم</span><span>المستلم</span><span>صُرفت لشراء</span><span>التفاصيل</span></div>
-          {filteredRecords.map((record) => <div key={record.id} className="border-b last:border-b-0" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}><button type="button" onClick={() => { setExpandedId(expandedId === record.id ? null : record.id); setPendingDeleteId(null); }} aria-expanded={expandedId === record.id} aria-label={`فتح تفاصيل السجل المالي ${record.beneficiaryName}`} className="w-full grid grid-cols-[54px_minmax(180px,1.2fr)_minmax(150px,1fr)_minmax(130px,0.8fr)_minmax(190px,1.3fr)_52px] items-center px-4 py-3 text-right hover:bg-emerald-500/5 cursor-pointer"><span>{record.sequence}</span><span className="font-bold truncate">{record.beneficiaryName}</span><span className="truncate">{record.unitOrDepartment || '—'}</span><span>{formatAmount(parseAmount(record.receivedAmount))}</span><span className="truncate">{record.spentForPurchase || '—'}</span><span className="flex justify-center">{expandedId === record.id ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-neutral-400" />}</span></button>
+          {filteredRecords.map((record) => <div key={record.id} className="border-b last:border-b-0" style={{ borderColor: isDarkMode ? '#343434' : '#e2e8f0' }}><div className="flex items-center">{selection.enabled && <div className="px-3"><ExcelRowCheckbox checked={selection.selectedIds.has(record.id)} label={record.beneficiaryName} onChange={() => selection.toggle(record.id)} /></div>}<button type="button" onClick={() => { setExpandedId(expandedId === record.id ? null : record.id); setPendingDeleteId(null); }} aria-expanded={expandedId === record.id} aria-label={`فتح تفاصيل السجل المالي ${record.beneficiaryName}`} className="flex-1 grid grid-cols-[54px_minmax(180px,1.2fr)_minmax(150px,1fr)_minmax(130px,0.8fr)_minmax(190px,1.3fr)_52px] items-center px-4 py-3 text-right hover:bg-emerald-500/5 cursor-pointer"><span>{record.sequence}</span><span className="font-bold truncate">{record.beneficiaryName}</span><span className="truncate">{record.unitOrDepartment || '—'}</span><span>{formatAmount(parseAmount(record.receivedAmount))}</span><span className="truncate">{record.spentForPurchase || '—'}</span><span className="flex justify-center">{expandedId === record.id ? <ChevronUp className="w-4 h-4 text-emerald-400" /> : <ChevronDown className="w-4 h-4 text-neutral-400" />}</span></button></div>
             {expandedId === record.id && <div className="px-4 pb-4 grid grid-cols-2 md:grid-cols-4 gap-3">{([
               ['رقم الكي كارد', record.keyCardNumber], ['الفوج أو القسم', record.unitOrDepartment], ['استلام المبلغ', formatAmount(parseAmount(record.receivedAmount))], ['صُرفت لشراء', record.spentForPurchase], ['رقم أمر الصرف', record.paymentOrderNumber], ['تاريخ الصرف', record.paymentDate], ['الملاحظات', record.notes], ['المرفق', record.attachmentName],
             ] as Array<[string, string]>).map(([label, value]) => <div key={label} className="rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3b3b3b' : '#e2e8f0' }}><div className="text-[9px] text-neutral-500 mb-1">{label}</div><div className="text-[11px] font-bold break-words">{value || '—'}</div></div>)}
               {record.attachmentDataUrl && (isImageAttachment(record) ? (
-                <button type="button" onClick={() => setPreviewAttachment(record)} className="rounded-xl border border-emerald-500/30 p-3 text-[11px] font-bold text-emerald-400 flex items-center justify-center gap-2 cursor-pointer hover:bg-emerald-500/10" aria-label={`فتح صورة ${record.attachmentName}`}><Maximize2 className="w-4 h-4" /> فتح الصورة</button>
+                <button type="button" onClick={() => setPreviewAttachment(record)} className="rounded-xl border border-emerald-500/30 p-3 text-[11px] font-bold text-emerald-400 flex items-center justify-center gap-2 cursor-pointer hover:bg-emerald-500/10" aria-label={`عرض صورة ${record.attachmentName}`}><Maximize2 className="w-4 h-4" /> عرض الصورة</button>
               ) : (
                 <a href={record.attachmentDataUrl} download={record.attachmentName} className="rounded-xl border border-emerald-500/30 p-3 text-[11px] font-bold text-emerald-400 flex items-center justify-center gap-2"><Download className="w-4 h-4" /> تنزيل ملف PDF</a>
               ))}

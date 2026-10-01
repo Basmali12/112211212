@@ -71,7 +71,10 @@ import {
 import { VehicleRecords, getStoredVehicleCount } from './VehicleRecords';
 import { MartyrRecords } from './MartyrRecords';
 import { ArmamentRecords } from './ArmamentRecords';
-import { FinancialRecords } from './FinancialRecords';
+import { FinanceSection } from './FinanceSection';
+import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
+import { ImagePreviewButton } from './ImagePreviewButton';
+import { AttendanceSection } from './AttendanceSection';
 import { MilitaryDashboard } from './MilitaryDashboard';
 import type { CamoIntensity, CamoPatternType } from './MilitaryCamoBackground';
 import {
@@ -226,8 +229,8 @@ export const REGIMENT_MILITARY_FILES: MilitaryRegimentFile[] = [
   {
     id: 'file_misc',
     orderNumber: 14,
-    label: 'شؤون متفرقة',
-    name: 'المتفرقة',
+    label: 'كتب المنتسبين',
+    name: 'أضبارة كتب المنتسبين',
     code: 'MISC-01',
     category: 'الأرشيف العام',
     iconType: 'misc',
@@ -414,6 +417,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
   const setActiveView = onActiveViewChange || setInternalActiveView;
   const [isDirDialogOpen, setIsDirDialogOpen] = useState<boolean>(false);
   const [isExcelModalOpen, setIsExcelModalOpen] = useState<boolean>(false);
+  const [beginHomeExcelSelection, setBeginHomeExcelSelection] = useState(false);
 
   // Database in-memory state (Pandas DataFrame simulation)
   // Simulates the silent auto-load on startup from default_save_path
@@ -446,10 +450,11 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
   const [quickIndexFilter, setQuickIndexFilter] = useState<string | null>(null);
 
   const filteredRegimentFiles = useMemo(() => {
-    if (!fileSearchQuery.trim()) return REGIMENT_MILITARY_FILES;
+    const files = REGIMENT_MILITARY_FILES.filter((file) => file.id !== 'file_vehicles');
+    if (!fileSearchQuery.trim()) return files;
     const q = normalizeMilitarySearchText(fileSearchQuery);
     const qDigits = convertArabicIndicDigits(fileSearchQuery.trim());
-    return REGIMENT_MILITARY_FILES.filter(
+    return files.filter(
       (f) =>
         normalizeMilitarySearchText(f.name).includes(q) ||
         normalizeMilitarySearchText(f.category).includes(q) ||
@@ -468,6 +473,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
       return [];
     }
   });
+  const docSelection = useExcelSelection(folderDocuments.filter((doc) => doc.folderId === openedFileId), (doc) => doc.id);
 
   const [isAddDocModalOpen, setIsAddDocModalOpen] = useState<boolean>(false);
   const [newDocTitle, setNewDocTitle] = useState<string>('');
@@ -1172,7 +1178,10 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                 onSelectRecord={setSelectedRecordId}
                 onAddPersonnel={handleAddNewPersonnel}
                 onImportExcel={() => setIsExcelModalOpen(true)}
-                onExportExcel={() => triggerExcelDownload(records, config.database_filename || 'database.xlsx')}
+                onExportExcel={(selected) => triggerExcelDownload(selected || records, selected ? 'المنتسبون_المحددون.xlsx' : config.database_filename || 'database.xlsx')}
+                onEmptySelection={() => onShowToast('warning', 'لا توجد سجلات محددة', 'حدد منتسبًا واحدًا على الأقل ثم اضغط تحميل المحدد.')}
+                beginSelection={beginHomeExcelSelection}
+                onSelectionStarted={() => setBeginHomeExcelSelection(false)}
                 onOpenDetails={handleOpenDetails}
                 onOpenFiles={setPdfRecord}
               />
@@ -1456,7 +1465,15 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
 
             {/* تبويبة المالية */}
             {activeView === 'finance' && (
-              <FinancialRecords isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
+              <FinanceSection isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
+            )}
+
+            {activeView === 'vehicles' && (
+              <VehicleRecords isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
+            )}
+
+            {activeView === 'attendance' && (
+              <AttendanceSection isDarkMode={isDarkMode} onShowToast={onShowToast} onBack={() => setActiveView('home')} />
             )}
 
             {/* تبويبة الاتصالات — مهيأة للحقول القادمة */}
@@ -1717,7 +1734,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                     يمكنك الوصول المباشر لكافة سجلات المنتسبين وإدارتها أو إضافة منتسب جديد أو تنزيل ملف قاعدة البيانات:
                   </p>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                     {/* زر السجلات الفعال: ينقل المستخدم فوراً لجدول السجلات */}
                     <button
                       onClick={() => {
@@ -1756,6 +1773,17 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                     >
                       <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
                       <span>📥 تصدير السجلات Excel</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBeginHomeExcelSelection(true);
+                        setActiveView('home');
+                      }}
+                      className="flex items-center justify-center gap-2 py-3 px-4 rounded-xl font-bold text-xs text-white bg-indigo-600 hover:bg-indigo-500 cursor-pointer"
+                      title="الانتقال إلى جدول المنتسبين لتحديد الأسماء ثم تنزيلها"
+                    >
+                      <FileSpreadsheet className="w-4 h-4" /> تحميل المحدد
                     </button>
                   </div>
                 </div>
@@ -1972,6 +2000,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                     if (currentOpenedFile && isPersonnelRecordsFolder(currentOpenedFile.id)) {
                       return (
                         <FolderPersonnelRecords
+                          key={currentOpenedFile.id}
                           folderId={currentOpenedFile.id}
                           folderName={currentOpenedFile.name}
                           folderLabel={currentOpenedFile.label}
@@ -2147,8 +2176,8 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                     })();
 
                     // تصدير جدول الفهرسة إلى Excel
-                    const handleExportIndexToExcel = () => {
-                      const exportData = currentFolderDocs.map((d) => ({
+                    const handleExportIndexToExcel = (toExport = currentFolderDocs) => {
+                      const exportData = toExport.map((d) => ({
                         'ت (رقم الفهرس)': d.seqIndex,
                         'رقم الكتاب / الصادر': d.documentNumber || d.detectedNumber || '-',
                         'اسم وموضوع الكتاب': d.title,
@@ -2180,7 +2209,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                       appendEmbeddedFilesSheet(
                         workbook,
                         FOLDER_ATTACHMENTS_SHEET,
-                        currentFolderDocs.flatMap((doc) => doc.attachments.map((attachment) => ({
+                        toExport.flatMap((doc) => doc.attachments.map((attachment) => ({
                           recordKey: String(doc.seqIndex),
                           name: attachment.name,
                           type: attachment.type === 'pdf'
@@ -2189,9 +2218,9 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                           dataUrl: attachment.dataUrl,
                         }))),
                       );
-                      const fname = `فهرس_${currentOpenedFile?.name || 'الملف'}_${new Date().toISOString().split('T')[0]}.xlsx`;
+                      const fname = `فهرس_${currentOpenedFile?.name || 'الملف'}_${new Date().toISOString().split('T')[0]}${toExport === currentFolderDocs ? '' : '_المحدد'}.xlsx`;
                       XLSX.writeFile(workbook, fname);
-                      onShowToast('success', 'تم تصدير الفهرس', `تم تصدير جدول الفهرسة إلى ${fname} بنجاح.`);
+                      onShowToast('success', 'تم تصدير الفهرس', `تم تصدير ${toExport.length} سجل إلى ${fname} بنجاح.`);
                     };
 
                     const handleImportFolderExcel = async (file: File | undefined) => {
@@ -2382,7 +2411,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                               />
 
                               <button
-                                onClick={handleExportIndexToExcel}
+                                onClick={() => handleExportIndexToExcel()}
                                 className="px-3 py-1.5 rounded-xl text-xs font-bold border transition-all flex items-center gap-1.5 cursor-pointer hover:bg-blue-600 hover:text-white hover:border-blue-600 shadow-xs"
                                 style={{
                                   backgroundColor: isDarkMode ? '#222222' : '#ffffff',
@@ -2394,6 +2423,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                 <Download className="w-3.5 h-3.5" />
                                 <span>تحميل Excel</span>
                               </button>
+                              <SelectedExcelButton enabled={docSelection.enabled} count={docSelection.selectedRecords.length} onAction={() => docSelection.run((selected) => handleExportIndexToExcel(indexedFolderDocs.filter((doc) => selected.some((item) => item.id === doc.id))), () => onShowToast('warning', 'لا توجد سجلات محددة', 'حدد كتابًا واحدًا على الأقل.'))} onCancel={docSelection.reset} />
 
                               {/* زر إضافة صادر جديد / وارد جديد */}
                               <button
@@ -2638,6 +2668,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                           borderColor: isDarkMode ? '#333333' : '#e2e8f0',
                                         }}
                                       >
+                                        {docSelection.enabled && <th className="py-3 px-3 text-center w-12">تحديد</th>}
                                         <th className="py-3 px-3 text-center w-14">ت (الفهرس)</th>
                                         <th className="py-3 px-3 text-center w-28">رقم الكتاب / الصادر</th>
                                         <th className="py-3 px-4">اسم وموضوع الكتاب (المفهرس)</th>
@@ -2658,6 +2689,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                               backgroundColor: isDarkMode ? '#202020' : '#ffffff',
                                             }}
                                           >
+                                            {docSelection.enabled && <td className="py-3 px-3 text-center"><ExcelRowCheckbox checked={docSelection.selectedIds.has(doc.id)} label={doc.cleanTitle || doc.title} onChange={() => docSelection.toggle(doc.id)} /></td>}
                                             {/* ت - رقم الفهرس */}
                                             <td className="py-3 px-3 text-center">
                                               <span className="inline-flex items-center justify-center w-7 h-7 rounded-lg font-bold text-xs bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
@@ -2746,6 +2778,16 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                                   </button>
                                                 )}
 
+                                                {images.length > 0 && (
+                                                  <button
+                                                    type="button"
+                                                    onClick={() => setPreviewImage({ url: images[0].dataUrl, title: images[0].name, docId: doc.id, attId: images[0].id })}
+                                                    className="px-2 py-1.5 rounded-lg bg-blue-500/10 text-blue-400 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                                  >
+                                                    <Eye className="w-3.5 h-3.5" /> عرض الصورة
+                                                  </button>
+                                                )}
+
                                                 {/* زر معاينة أول مرفق إذا وجد */}
                                                 {doc.attachments.length > 0 && (
                                                   <button
@@ -2823,6 +2865,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                     >
                                       {/* Header */}
                                       <div className="flex items-start justify-between gap-2 mb-3">
+                                        {docSelection.enabled && <ExcelRowCheckbox checked={docSelection.selectedIds.has(doc.id)} label={doc.cleanTitle || doc.title} onChange={() => docSelection.toggle(doc.id)} />}
                                         <div className="flex-1">
                                           <div className="flex items-center gap-1.5 mb-1.5 flex-wrap">
                                             {/* شارة رقم الفهرس */}
@@ -2906,6 +2949,13 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
 
                                                 {/* أزرار الإجراءات السريعة على الصورة / المرفق */}
                                                 <div className="absolute top-1 left-1 flex items-center gap-1 z-10 opacity-90 group-hover/att:opacity-100 transition-opacity">
+                                                  {att.type === 'image' && (
+                                                    <button
+                                                      type="button"
+                                                      onClick={(event) => { event.stopPropagation(); setPreviewImage({ url: att.dataUrl, title: att.name, docId: doc.id, attId: att.id }); }}
+                                                      className="px-1.5 py-1 rounded-md bg-blue-700/90 text-white text-[9px] font-bold cursor-pointer"
+                                                    >عرض الصورة</button>
+                                                  )}
                                                   {/* زر تحميل الصورة على سطح المكتب أو اختياري */}
                                                   <button
                                                     onClick={(e) => {
@@ -3044,7 +3094,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                                 <Upload className="w-8 h-8" />
                               </div>
                               <h3 className="text-base font-bold mb-1" style={{ color: isDarkMode ? '#ffffff' : '#0f172a' }}>
-                                أضبارة {currentOpenedFile?.name} فارغة حالياً
+                                {currentOpenedFile?.name.startsWith('أضبارة') ? currentOpenedFile.name : `أضبارة ${currentOpenedFile?.name}`} فارغة حالياً
                               </h3>
                               <p className="text-xs text-neutral-400 max-w-md mb-6 leading-relaxed">
                                 يمكنك الضغط على زر ({addBtnLabel}) في الأعلى، أو سحب وإفلات الصور (JPG, PNG) وملفات PDF هنا مباشرة لحفظها داخل هذا الملف.
@@ -3167,7 +3217,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                           return (
                             <div
                               key={file.id}
-                              onClick={() => setOpenedFileId(file.id)}
+                              onClick={() => { docSelection.reset(); setOpenedFileId(file.id); }}
                               className="group relative w-full h-72 rounded-2xl border-2 transition-all duration-300 flex flex-col items-center justify-between p-5 cursor-pointer select-none shadow-md hover:shadow-2xl hover:scale-103 active:scale-98"
                               style={{
                                 backgroundColor: isDarkMode ? '#222222' : '#ffffff',
@@ -3447,6 +3497,7 @@ export const DesktopWindow: React.FC<DesktopWindowProps> = ({
                               <span className="text-[10px] text-neutral-400">{formatFileSize(att.size)}</span>
                             </div>
                           </div>
+                          {att.type === 'image' && <ImagePreviewButton src={att.dataUrl} name={att.name} className="text-[10px] font-bold text-blue-400 flex items-center gap-1 cursor-pointer" />}
                           <button
                             type="button"
                             onClick={(e) => {

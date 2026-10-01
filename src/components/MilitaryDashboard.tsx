@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   CalendarDays,
   ChevronLeft,
@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import type { MilitaryRecord } from '../types';
 import { normalizeArabic } from '../mockData';
+import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
 
 interface MilitaryDashboardProps {
   records: MilitaryRecord[];
@@ -28,7 +29,10 @@ interface MilitaryDashboardProps {
   onSelectRecord: (id: number) => void;
   onAddPersonnel: () => void;
   onImportExcel: () => void;
-  onExportExcel: () => void;
+  onExportExcel: (selected?: MilitaryRecord[]) => void;
+  onEmptySelection: () => void;
+  beginSelection?: boolean;
+  onSelectionStarted?: () => void;
   onOpenDetails: (record: MilitaryRecord) => void;
   onOpenFiles: (record: MilitaryRecord) => void;
 }
@@ -73,12 +77,22 @@ export const MilitaryDashboard: React.FC<MilitaryDashboardProps> = ({
   onAddPersonnel,
   onImportExcel,
   onExportExcel,
+  onEmptySelection,
+  beginSelection = false,
+  onSelectionStarted,
   onOpenDetails,
   onOpenFiles,
 }) => {
   const [unitFilter, setUnitFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [page, setPage] = useState(1);
+  const selection = useExcelSelection(records, (record) => String(record.seq));
+  useEffect(() => {
+    if (beginSelection) {
+      selection.activate();
+      onSelectionStarted?.();
+    }
+  }, [beginSelection, onSelectionStarted]);
   const pageSize = 10;
 
   const units = useMemo(() => Array.from(new Set(records.map(getUnit))).sort(), [records]);
@@ -167,14 +181,15 @@ export const MilitaryDashboard: React.FC<MilitaryDashboardProps> = ({
               <option value="متقاعد">متقاعد</option>
             </select>
             <button type="button" onClick={onImportExcel} className="h-10 px-3 rounded-xl border border-white/10 bg-neutral-800 text-xs font-bold flex items-center gap-2"><Upload className="w-4 h-4" /> رفع Excel</button>
-            <button type="button" onClick={onExportExcel} className="h-10 px-3 rounded-xl border border-white/10 bg-neutral-800 text-xs font-bold flex items-center gap-2"><Download className="w-4 h-4" /> تصدير</button>
+            <button type="button" onClick={() => onExportExcel()} className="h-10 px-3 rounded-xl border border-white/10 bg-neutral-800 text-xs font-bold flex items-center gap-2"><Download className="w-4 h-4" /> تصدير</button>
+            <SelectedExcelButton enabled={selection.enabled} count={selection.selectedRecords.length} onAction={() => selection.run(onExportExcel, onEmptySelection)} onCancel={selection.reset} />
             <button type="button" onClick={onAddPersonnel} className="h-10 px-4 rounded-xl bg-emerald-600 text-xs font-bold flex items-center gap-2"><UserPlus className="w-4 h-4" /> إضافة منتسب جديد</button>
           </div>
 
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1120px] text-right text-xs">
               <thead><tr className="text-neutral-300">
-                {['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'المنصب', 'الوحدة / التشكيل', 'الهاتف', 'الحالة', 'إجراءات'].map((heading) => <th key={heading} className="px-3 py-3 border-b border-white/10 font-bold">{heading}</th>)}
+                {(selection.enabled ? ['تحديد', 'ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'المنصب', 'الوحدة / التشكيل', 'الهاتف', 'الحالة', 'إجراءات'] : ['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'المنصب', 'الوحدة / التشكيل', 'الهاتف', 'الحالة', 'إجراءات']).map((heading) => <th key={heading} className="px-3 py-3 border-b border-white/10 font-bold">{heading}</th>)}
               </tr></thead>
               <tbody>
                 {visibleRecords.map((record, index) => {
@@ -182,6 +197,7 @@ export const MilitaryDashboard: React.FC<MilitaryDashboardProps> = ({
                   const selected = selectedRecordId === record.seq;
                   return (
                     <tr key={record.seq} onClick={() => onSelectRecord(record.seq)} onDoubleClick={() => onOpenDetails(record)} className={`cursor-pointer ${selected ? 'bg-emerald-500/12' : 'hover:bg-emerald-500/5'}`}>
+                      {selection.enabled && <td className="px-3 py-3 border-b border-white/7"><ExcelRowCheckbox checked={selection.selectedIds.has(String(record.seq))} label={record.fullname} onChange={() => selection.toggle(String(record.seq))} /></td>}
                       <td className="px-3 py-3 border-b border-white/7 text-neutral-400">{(page - 1) * pageSize + index + 1}</td>
                       <td className="px-3 py-3 border-b border-white/7 font-mono font-bold" dir="ltr">{record.military_id}</td>
                       <td className="px-3 py-3 border-b border-white/7 font-bold text-white">{record.fullname}</td>

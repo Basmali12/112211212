@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import {
-  X,
   User,
   FileBadge,
   Home,
@@ -20,6 +20,7 @@ import type { MilitaryRecord } from '../types';
 import { TAB_SCHEMA, TOTAL_PERSONNEL_FIELDS, getFullDetailsForRecord } from '../mockData';
 import { appendEmbeddedFilesSheet, blobToDataUrl, dataUrlToFile, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
 import { listPersonnelFiles, savePersonnelFile } from '../personnelPdfStorage';
+import { ExcelRowCheckbox, SelectedExcelButton } from './ExcelSelection';
 
 const PERSONNEL_ATTACHMENTS_SHEET = 'مرفقات_العسكري';
 
@@ -54,10 +55,14 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
   const [isModified, setIsModified] = useState<boolean>(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [excelSelectionEnabled, setExcelSelectionEnabled] = useState(false);
+  const [excelRecordSelected, setExcelRecordSelected] = useState(false);
   const excelInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (isOpen) {
+      setExcelSelectionEnabled(false);
+      setExcelRecordSelected(false);
       if (isAddMode) {
         // Initialize empty fields for Add Mode
         const emptyFields: Record<string, string> = {};
@@ -229,74 +234,34 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-xs p-3 md:p-6 animate-in fade-in duration-200">
+  return createPortal(
+    <div className="fixed inset-x-0 bottom-0 top-[159px] z-30 flex items-center justify-center bg-black/70 backdrop-blur-xs px-3 pb-2 pt-0 md:px-6 animate-in fade-in duration-200">
       {/* CTkToplevel Window Simulation */}
       <div
-        className="w-full max-w-5xl max-h-[92vh] rounded-2xl shadow-2xl overflow-hidden border flex flex-col font-sans transition-colors duration-200 relative"
+        className="w-full max-w-7xl max-h-full rounded-2xl shadow-2xl overflow-hidden border flex flex-col font-sans transition-colors duration-200 relative"
         style={{
           backgroundColor: isDarkMode ? '#1f1f1f' : '#ffffff',
           borderColor: isDarkMode ? '#383838' : '#d4d4d4',
         }}
       >
-        {/* OS / CTkToplevel Window Title Bar */}
-        <div
-          className="flex items-center justify-between px-5 py-3 select-none border-b transition-colors"
-          style={{
-            backgroundColor: isDarkMode ? '#292929' : '#f0f2f5',
-            borderColor: isDarkMode ? '#383838' : '#e0e0e0',
-          }}
-        >
-          <div className="flex items-center gap-3">
-            <span
-              className="text-xs font-bold flex items-center gap-2"
-              style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
-            >
-              <span className={`w-2.5 h-2.5 rounded-full ${isAddMode ? 'bg-blue-500' : 'bg-emerald-500'} inline-block animate-pulse`}></span>
-              {isAddMode
-                ? 'إضافة منتسب جديد إلى قاعدة البيانات — CTkToplevel (CustomTkinter)'
-                : 'تفاصيل وتعديل ملف المنتسب — CTkToplevel (CustomTkinter)'}
-            </span>
-            <span
-              className="text-xs font-mono px-2 py-0.5 rounded"
-              style={{
-                backgroundColor: isDarkMode ? '#141414' : '#e5e7eb',
-                color: isDarkMode ? '#93c5fd' : '#1d4ed8',
-              }}
-            >
-              {isAddMode ? 'وضع الإضافة (تسلسل تلقائي)' : `الرقم العسكري: ${fieldValues['الرقم العسكري'] || (record ? record.military_id : '-')}`}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-neutral-400">إجمالي الحقول: {TOTAL_PERSONNEL_FIELDS} حقلاً</span>
-            <button
-              onClick={onClose}
-              className="p-1 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors cursor-pointer"
-              title="إغلاق النافذة"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-
         {/* Modal Subheader / Personnel Identity Card */}
         <div
-          className="px-6 py-3.5 border-b flex flex-wrap items-center justify-between gap-4 transition-colors"
+          className="shrink-0 px-5 py-2 border-b flex flex-wrap items-center justify-between gap-2 transition-colors"
           style={{
             backgroundColor: isDarkMode ? '#242424' : '#fafafa',
             borderColor: isDarkMode ? '#333333' : '#eeeeee',
           }}
         >
-          <div className="flex items-center gap-3.5 text-right">
+          <div className="flex items-center gap-2.5 text-right">
             <div
-              className="w-11 h-11 rounded-xl flex items-center justify-center font-bold text-lg text-white shadow-xs shrink-0"
+              className="w-9 h-9 rounded-xl flex items-center justify-center font-bold text-base text-white shadow-xs shrink-0"
               style={{ backgroundColor: isAddMode ? '#2563eb' : currentTheme.activeTab }}
             >
               {isAddMode ? <UserPlus className="w-5 h-5 text-white" /> : (fieldValues['الاسم الرباعي واللقب'] || (record ? record.fullname : 'م')).charAt(0) || 'م'}
             </div>
             <div>
               <div className="flex items-center gap-2">
+                {excelSelectionEnabled && !isAddMode && record && <ExcelRowCheckbox checked={excelRecordSelected} label={fieldValues['الاسم الرباعي واللقب'] || record.fullname} onChange={() => setExcelRecordSelected((selected) => !selected)} />}
                 <h2
                   className="text-base font-bold tracking-tight"
                   style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
@@ -342,6 +307,11 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
               <FileDown className="w-3.5 h-3.5" />
               تحميل Excel
             </button>
+            {!isAddMode && record && <SelectedExcelButton enabled={excelSelectionEnabled} count={excelRecordSelected ? 1 : 0} onAction={() => {
+              if (!excelSelectionEnabled) { setExcelSelectionEnabled(true); return; }
+              if (!excelRecordSelected) { onShowToast('warning', 'لا يوجد منتسب محدد', 'ضع علامة بجانب الاسم أولاً.'); return; }
+              void exportPersonnelExcel();
+            }} onCancel={() => { setExcelSelectionEnabled(false); setExcelRecordSelected(false); }} />}
             <input
               ref={excelInputRef}
               type="file"
@@ -381,7 +351,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
         <div className="flex-1 flex flex-col min-h-0">
           {/* Tab Headers Segmented Bar (CTkTabview Header) */}
           <div
-            className="px-6 pt-3 pb-2 border-b flex items-center gap-1.5 overflow-x-auto select-none transition-colors"
+            className="shrink-0 px-6 pt-3 pb-2 border-b flex items-center gap-1.5 overflow-x-auto select-none transition-colors"
             style={{
               backgroundColor: isDarkMode ? '#1e1e1e' : '#f5f5f5',
               borderColor: isDarkMode ? '#333333' : '#e5e5e5',
@@ -426,35 +396,16 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
 
           {/* Tab Content Body (CTkScrollableFrame) */}
           <div
-            className="flex-1 overflow-y-auto p-6 transition-colors"
+            className="flex-1 min-h-0 overflow-y-auto p-2 md:p-3 transition-colors"
+            role="region"
+            aria-label={tabList.find((tab) => tab.key === activeTab)?.label}
             style={{
               backgroundColor: isDarkMode ? '#191919' : '#fafafa',
             }}
           >
-            <div className="max-w-4xl mx-auto space-y-4">
-              {/* Tab Title Banner */}
-              <div
-                className="flex items-center justify-between pb-2 border-b"
-                style={{ borderColor: isDarkMode ? '#333333' : '#e5e5e5' }}
-              >
-                <h3
-                  className="text-sm font-bold flex items-center gap-2 text-right"
-                  style={{ color: isDarkMode ? '#ffffff' : '#111827' }}
-                >
-                  <span>{tabList.find((t) => t.key === activeTab)?.icon}</span>
-                  <span>{tabList.find((t) => t.key === activeTab)?.label}</span>
-                  <span className="text-xs font-normal text-neutral-400">
-                    ({currentTabConfig.fields.length} حقل مخصص)
-                  </span>
-                </h3>
-
-                <span className="text-[11px] font-mono text-neutral-400">
-                  {isAddMode ? 'سجل جديد (حقول فارغة)' : 'Data-bound from DataFrame'}
-                </span>
-              </div>
-
-              {/* Grid of CTkEntry Fields (2 to 3 Columns) */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 text-right">
+            <div className="w-full">
+              {/* Grid of CTkEntry Fields */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 text-right">
                 {currentTabConfig.fields.map((field) => {
                   const val = fieldValues[field.key] ?? '';
                   const isSeqField = field.key === 'ت';
@@ -462,7 +413,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
                   return (
                     <div
                       key={field.key}
-                      className="p-3 rounded-xl border flex flex-col gap-1.5 transition-colors focus-within:ring-1 focus-within:ring-emerald-500/50"
+                      className="p-2 rounded-xl border flex flex-col gap-1 transition-colors focus-within:ring-1 focus-within:ring-emerald-500/50"
                       style={{
                         backgroundColor: isDarkMode ? '#242424' : '#ffffff',
                         borderColor: isDarkMode ? '#353535' : '#e5e7eb',
@@ -483,7 +434,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
                         disabled={isAddMode && isSeqField}
                         placeholder={isAddMode && isSeqField ? '(تلقائي: أعلى ت + 1)' : ''}
                         onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                        className={`w-full px-3 py-1.5 rounded-lg text-xs font-medium border focus:outline-hidden transition-colors ${
+                        className={`w-full px-3 py-1 rounded-lg text-xs font-medium border focus:outline-hidden transition-colors ${
                           isAddMode && isSeqField ? 'opacity-60 cursor-not-allowed bg-neutral-800' : ''
                         }`}
                         style={{
@@ -503,7 +454,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
 
         {/* Modal Footer / CTkToplevel Bottom Controls with Save & Delete (Phase 5) */}
         <div
-          className="px-6 py-4 border-t flex flex-wrap items-center justify-between gap-3 text-xs transition-colors"
+          className="shrink-0 px-5 py-2 border-t flex flex-wrap items-center justify-between gap-2 text-xs transition-colors"
           style={{
             backgroundColor: isDarkMode ? '#242424' : '#f3f4f6',
             borderColor: isDarkMode ? '#333333' : '#e5e5e5',
@@ -653,6 +604,7 @@ export const PersonnelDetailsModal: React.FC<PersonnelDetailsModalProps> = ({
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 };
