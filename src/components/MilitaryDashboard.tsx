@@ -245,7 +245,7 @@ export const MilitaryDashboard: React.FC<MilitaryDashboardProps> = ({
         <div className="relative mt-auto min-h-[315px] overflow-hidden">
           <img src={`${import.meta.env.BASE_URL}sidebar-soldiers.png`} alt="جنود عراقيون يحملون العلم العراقي" className="absolute inset-x-0 bottom-0 w-full h-[315px] object-cover object-top opacity-38" />
           <div className="absolute inset-0 bg-linear-to-b from-[#06110f] via-[#06110f]/20 to-[#06110f]/85" />
-          <div className="absolute bottom-5 inset-x-4 text-center"><p className="text-sm font-black text-emerald-200 leading-6">قوتنا في بياناتنا<br />وسندنا في رجالنا</p><div className="h-px bg-emerald-500/30 my-3" /><p className="text-[10px] text-neutral-400">وزارة الدفاع<br />قيادة فوج المغاوير</p></div>
+          <div className="absolute bottom-5 inset-x-4 text-center"><p className="text-sm font-black text-emerald-200 leading-6">قوتنا في بياناتنا<br />وسندنا في رجالنا</p><div className="h-px bg-emerald-500/30 my-3" /><p className="text-[10px] text-neutral-400">هيئة الحشد الشعبي<br />اللواء الثاني والعشرون</p></div>
         </div>
       </aside>
     </div>

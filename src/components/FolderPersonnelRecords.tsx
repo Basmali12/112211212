@@ -5,6 +5,9 @@ import { normalizeArabic } from '../mockData';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
 
+import { MartyrDocuments, type MartyrDocument } from './MartyrDocuments';
+import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
+
 const STORAGE_KEY = 'military_folder_personnel_records_v1';
 
 export const PERSONNEL_RECORD_FOLDER_IDS = [
@@ -34,6 +37,10 @@ interface FolderPersonnelRecord {
   birthDate: string;
   qiCardNumber: string;
   nationalCardNumber: string;
+  administrativeNote12?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  administrativeDocuments?: MartyrDocument[];
   createdAt: string;
 }
 
@@ -48,6 +55,10 @@ interface RecordFormState {
   birthDate: string;
   qiCardNumber: string;
   nationalCardNumber: string;
+  administrativeNote12?: string;
+  issueDate?: string;
+  expiryDate?: string;
+  administrativeDocuments?: MartyrDocument[];
 }
 
 interface FolderPersonnelRecordsProps {
@@ -68,6 +79,10 @@ const EMPTY_FORM: RecordFormState = {
   birthDate: '',
   qiCardNumber: '',
   nationalCardNumber: '',
+  administrativeNote12: '',
+  issueDate: '',
+  expiryDate: '',
+  administrativeDocuments: [],
 };
 
 const readStore = (): FolderPersonnelStore => {
@@ -96,6 +111,7 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
   onBack,
   onShowToast,
 }) => {
+  const showAdministrativeArchive = folderId === 'file_security';
   const [records, setRecords] = useState<FolderPersonnelRecord[]>(() => readFolderRecords(folderId));
   const selection = useExcelSelection(records, (record) => record.id);
   const [query, setQuery] = useState('');
@@ -134,7 +150,7 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
     color: isDarkMode ? '#ffffff' : '#0f172a',
   };
 
-  const updateForm = (field: keyof RecordFormState, value: string) => {
+  const updateForm = (field: Exclude<keyof RecordFormState, 'administrativeDocuments'>, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -155,6 +171,10 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
       birthDate: record.birthDate,
       qiCardNumber: record.qiCardNumber,
       nationalCardNumber: record.nationalCardNumber,
+      administrativeNote12: record.administrativeNote12 || '',
+      issueDate: record.issueDate || '',
+      expiryDate: record.expiryDate || '',
+      administrativeDocuments: record.administrativeDocuments || [],
     });
     setShowForm(true);
   };
@@ -197,6 +217,7 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
       birthDate: form.birthDate.trim(),
       qiCardNumber: form.qiCardNumber.trim(),
       nationalCardNumber: form.nationalCardNumber.trim(),
+      ...(showAdministrativeArchive ? { administrativeNote12: (form.administrativeNote12 || '').trim(), issueDate: form.issueDate || '', expiryDate: form.expiryDate || '', administrativeDocuments: form.administrativeDocuments || [] } : {}),
       createdAt: existing?.createdAt || new Date().toISOString(),
     };
 
@@ -227,12 +248,14 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
       'تاريخ التولد': record.birthDate,
       'رقم بطاقة كي كارد': record.qiCardNumber,
       'رقم البطاقة الوطنية': record.nationalCardNumber,
+      ...(showAdministrativeArchive ? { 'ملاحظة إدارية': record.administrativeNote12 || '', 'تاريخ الإصدار': record.issueDate || '', 'تاريخ الانتهاء': record.expiryDate || '', 'مرجع الأرشفة': String(index + 1) } : {}),
     }));
     const worksheet = rows.length > 0
       ? XLSX.utils.json_to_sheet(rows)
       : XLSX.utils.aoa_to_sheet([['ت', 'الرقم العسكري', 'الاسم الرباعي واللقب', 'المنصب', 'الفوج أو السرية', 'اسم الأم', 'تاريخ التولد', 'رقم بطاقة كي كارد', 'رقم البطاقة الوطنية']]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, 'سجل_المنتسبين');
+    if (showAdministrativeArchive) appendEmbeddedFilesSheet(workbook, 'المستندات_الإدارية', toExport.flatMap((record, index) => (record.administrativeDocuments || []).map(document => ({ ...document, recordKey: String(index + 1) }))));
     XLSX.writeFile(workbook, `${folderName}_سجل_المنتسبين${toExport === records ? '' : '_المحدد'}.xlsx`);
     onShowToast('success', 'تم تحميل Excel', `تم تنزيل ${toExport.length} سجل من ${folderName}.`);
   };
@@ -243,6 +266,7 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
       const workbook = XLSX.read(await file.arrayBuffer(), { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet, { defval: '', raw: false });
+      const attachments = readEmbeddedFilesSheet(workbook, 'المستندات_الإدارية');
       const imported = rows.map((row, index): FolderPersonnelRecord | null => {
         const militaryNumber = String(row['الرقم العسكري'] ?? row['رقم العسكري'] ?? '').trim();
         const fullName = String(row['الاسم الرباعي واللقب'] ?? row['الاسم'] ?? '').trim();
@@ -258,6 +282,7 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
           birthDate: String(row['تاريخ التولد'] ?? row['تاريخ الميلاد'] ?? '').trim(),
           qiCardNumber: String(row['رقم بطاقة كي كارد'] ?? row['رقم الكي كارد'] ?? '').trim(),
           nationalCardNumber: String(row['رقم البطاقة الوطنية'] ?? row['رقم البطاقة الموحدة'] ?? '').trim(),
+          ...(showAdministrativeArchive ? { administrativeNote12: String(row['ملاحظة إدارية'] ?? row['يشمع 12'] ?? ''), issueDate: String(row['تاريخ الإصدار'] || ''), expiryDate: String(row['تاريخ الانتهاء'] || ''), administrativeDocuments: attachments.get(String(row['مرجع الأرشفة'] || index + 1)) || [] } : {}),
           createdAt: new Date().toISOString(),
         };
       }).filter((record): record is FolderPersonnelRecord => record !== null);
@@ -390,6 +415,9 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {showAdministrativeArchive && <label className="text-[11px] font-bold text-neutral-300">ملاحظة إدارية
+              <input aria-label="ملاحظة إدارية" type="text" value={form.administrativeNote12 || ''} onChange={event => updateForm('administrativeNote12', event.target.value)} className="w-full mt-1.5 py-2.5 px-3 rounded-xl text-xs border focus:outline-hidden text-right" style={inputStyle} />
+            </label>}
             <label className="text-[11px] font-bold text-neutral-300">
               الرقم العسكري <span className="text-red-400">*</span>
               <input
@@ -478,6 +506,14 @@ export const FolderPersonnelRecords: React.FC<FolderPersonnelRecordsProps> = ({
             </label>
           </div>
 
+          {showAdministrativeArchive && <section className="mt-4 rounded-xl border border-neutral-600 p-3 space-y-3">
+            <h3 className="text-sm font-bold">الأرشفة الإدارية</h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {([['issueDate', 'تاريخ الإصدار'], ['expiryDate', 'تاريخ الانتهاء']] as const).map(([field, label]) => <label key={field} className="text-xs">{label}<input type="text" placeholder="مثال: 2/10/2026" aria-label={label} value={form[field] || ''} onChange={event => updateForm(field, event.target.value)} className="w-full mt-2 p-3 rounded-xl border" style={inputStyle} /></label>)}
+            </div>
+            <p className="text-xs text-neutral-400">مستندات إدارية عامة</p>
+            <MartyrDocuments documents={form.administrativeDocuments || []} onChange={administrativeDocuments => setForm(current => ({ ...current, administrativeDocuments }))} />
+          </section>}
           <div className="flex items-center gap-2 mt-4">
             <button type="submit" className="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-blue-600 hover:bg-blue-500 cursor-pointer">
               {editingId ? 'حفظ التعديل' : 'حفظ السجل'}

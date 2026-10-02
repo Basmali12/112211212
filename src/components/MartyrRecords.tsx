@@ -5,6 +5,7 @@ import { normalizeArabic } from '../mockData';
 import { appendEmbeddedFilesSheet, readEmbeddedFilesSheet } from '../excelEmbeddedFiles';
 import { ConfirmDialog } from './ConfirmDialog';
 import { ExcelRowCheckbox, SelectedExcelButton, useExcelSelection } from './ExcelSelection';
+import { MartyrDocuments, type MartyrDocument } from './MartyrDocuments';
 import { ImagePreviewButton } from './ImagePreviewButton';
 
 const MARTYRS_STORAGE_KEY = 'military_martyr_records_v1';
@@ -39,10 +40,23 @@ const REGISTER_CONFIG: Record<RegisterType, {
   },
 };
 
+interface MartyrChild { fullName: string; education: string; birthDate: string; studying: string; phone: string; }
+const readChildren = (value: unknown): MartyrChild[] => {
+  try { const items = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(items) ? items.filter(item => item && typeof item === 'object').map(item => ({ fullName: String(item.fullName || ''), education: String(item.education || ''), birthDate: String(item.birthDate || ''), studying: ['نعم', 'لا'].includes(item.studying) ? item.studying : '', phone: String(item.phone || '') })) : [];
+  } catch { return []; }
+};
 interface MartyrRecord {
   id: string;
   sequence: string;
   martyrName: string;
+  martyrType?: string;
+  motherName?: string;
+  phone?: string;
+  medicalCommittee?: string;
+  retirementStatus?: string;
+  documents?: MartyrDocument[];
+  children?: MartyrChild[];
   martyrdomDate: string;
   martyrdomPlace: string;
   wivesCount: string;
@@ -66,6 +80,13 @@ interface MartyrRecordsProps {
 const EMPTY_FORM: MartyrFormState = {
   sequence: '',
   martyrName: '',
+  martyrType: 'شهيد',
+  motherName: '',
+  phone: '',
+  medicalCommittee: '',
+  retirementStatus: '',
+  documents: [],
+  children: [],
   martyrdomDate: '',
   martyrdomPlace: '',
   wivesCount: '',
@@ -111,7 +132,7 @@ const readExcelCell = (row: Record<string, unknown>, names: string[]) => {
 };
 
 type FormField = {
-  key: keyof MartyrFormState;
+  key: Exclude<keyof MartyrFormState, 'children' | 'documents'>;
   label: string;
   placeholder: string;
   inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
@@ -126,6 +147,7 @@ const BASE_FORM_FIELDS: FormField[] = [
 
 const MARTYR_FORM_FIELDS: FormField[] = [
   ...BASE_FORM_FIELDS,
+  { key: 'motherName', label: 'اسم الأم', placeholder: 'أدخل اسم الأم' },
   { key: 'wivesCount', label: 'عدد الزوجات', placeholder: 'أدخل عدد الزوجات', inputMode: 'numeric' },
   { key: 'childrenCount', label: 'عدد الأطفال', placeholder: 'أدخل عدد الأطفال', inputMode: 'numeric' },
   { key: 'wifeName', label: 'اسم الزوجة', placeholder: 'أدخل اسم الزوجة' },
@@ -133,6 +155,9 @@ const MARTYR_FORM_FIELDS: FormField[] = [
 
 const WOUNDED_FORM_FIELDS: FormField[] = [
   ...BASE_FORM_FIELDS,
+  { key: 'phone', label: 'رقم الهاتف', placeholder: 'أدخل رقم الهاتف', inputMode: 'tel' },
+  { key: 'motherName', label: 'اسم الأم', placeholder: 'أدخل اسم الأم' },
+  { key: 'wifeName', label: 'اسم الزوجة', placeholder: 'أدخل اسم الزوجة' },
   { key: 'disabilityPercentage', label: 'نسبة العجز', placeholder: 'أدخل نسبة العجز', inputMode: 'decimal' },
 ];
 
@@ -163,7 +188,7 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
     color: isDarkMode ? '#ffffff' : '#0f172a',
   };
 
-  const updateForm = (field: keyof MartyrFormState, value: string) => {
+  const updateForm = (field: Exclude<keyof MartyrFormState, 'children' | 'documents'>, value: string) => {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
@@ -212,6 +237,13 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
     setForm({
       sequence: record.sequence || '',
       martyrName: record.martyrName || '',
+      martyrType: record.martyrType || 'شهيد',
+      motherName: record.motherName || '',
+      phone: record.phone || '',
+      medicalCommittee: record.medicalCommittee || '',
+      retirementStatus: record.retirementStatus || '',
+      documents: record.documents || [],
+      children: readChildren(record.children),
       martyrdomDate: record.martyrdomDate || '',
       martyrdomPlace: record.martyrdomPlace || '',
       wivesCount: record.wivesCount || '',
@@ -241,8 +273,8 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
 
   const exportExcel = (toExport = records) => {
     const headers = activeRegister === 'martyrs'
-      ? ['التسلسل', 'اسم الشهيد', 'تاريخ الاستشهاد', 'مكان الاستشهاد', 'عدد الزوجات', 'عدد الأطفال', 'اسم الزوجة', 'الملاحظات']
-      : ['التسلسل', 'اسم الجريح', 'تاريخ الإصابة', 'مكان الإصابة', 'نسبة العجز', 'تأييد الإصابة', 'الملاحظات'];
+      ? ['التسلسل', 'اسم الشهيد', 'تاريخ الاستشهاد', 'مكان الاستشهاد', 'عدد الزوجات', 'عدد الأطفال', 'اسم الزوجة', 'نوع الشهيد', 'اسم الأم', 'حالة التقاعد', 'أبناء الشهداء', 'الملاحظات']
+      : ['التسلسل', 'اسم الجريح', 'تاريخ الإصابة', 'مكان الإصابة', 'رقم الهاتف', 'اسم الأم', 'اسم الزوجة', 'محال إلى اللجنة الطبية', 'نسبة العجز', 'تأييد الإصابة', 'الملاحظات'];
     const rows = toExport.map((record) => activeRegister === 'martyrs' ? {
       التسلسل: record.sequence,
       'اسم الشهيد': record.martyrName,
@@ -251,12 +283,20 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
       'عدد الزوجات': record.wivesCount,
       'عدد الأطفال': record.childrenCount,
       'اسم الزوجة': record.wifeName,
+      'نوع الشهيد': record.martyrType || 'شهيد',
+      'اسم الأم': record.motherName || '',
+      'حالة التقاعد': record.retirementStatus || '',
+      'أبناء الشهداء': JSON.stringify(record.children || []),
       الملاحظات: record.notes,
     } : {
       التسلسل: record.sequence,
       'اسم الجريح': record.martyrName,
       'تاريخ الإصابة': record.martyrdomDate,
       'مكان الإصابة': record.martyrdomPlace,
+      'رقم الهاتف': record.phone || '',
+      'اسم الأم': record.motherName || '',
+      'اسم الزوجة': record.wifeName,
+      'محال إلى اللجنة الطبية': record.medicalCommittee || '',
       'نسبة العجز': record.disabilityPercentage,
       'تأييد الإصابة': record.injuryProofName,
       الملاحظات: record.notes,
@@ -276,6 +316,7 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
         dataUrl: record.injuryProofDataUrl,
       })));
     }
+    if (activeRegister === 'martyrs') appendEmbeddedFilesSheet(workbook, 'مستمسكات_الشهداء', toExport.flatMap(record => (record.documents || []).map(document => ({ ...document, recordKey: record.sequence }))));
     XLSX.writeFile(workbook, `سجل_${registerConfig.tabLabel}${toExport === records ? '' : '_المحدد'}.xlsx`);
     onShowToast('success', `تم تحميل ملف ${registerConfig.tabLabel}`, `تم تصدير ${toExport.length} سجل${activeRegister === 'wounded' ? ' مع صور تأييد الإصابة' : ''} في ملف Excel مستقل.`);
   };
@@ -287,6 +328,7 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
       const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, { defval: '', raw: false });
       const embeddedImages = readEmbeddedFilesSheet(workbook, WOUNDED_IMAGES_SHEET);
+      const martyrDocuments = readEmbeddedFilesSheet(workbook, 'مستمسكات_الشهداء');
       const baseSequence = Number.parseInt(getNextSequence(records), 10);
       const importedRecords = rows.map((row, index): MartyrRecord => {
         const sequence = readExcelCell(row, ['التسلسل', 'ت']) || String(baseSequence + index);
@@ -295,11 +337,18 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
           id: globalThis.crypto?.randomUUID?.() || `excel_${activeRegister}_${Date.now()}_${index}`,
           sequence,
           martyrName: readExcelCell(row, [registerConfig.nameLabel, 'الاسم', 'الاسم الكامل']),
+          martyrType: readExcelCell(row, ['نوع الشهيد']) || undefined,
+          motherName: Object.hasOwn(row, 'اسم الأم') ? readExcelCell(row, ['اسم الأم']) : undefined,
+          documents: martyrDocuments.get(sequence),
+          retirementStatus: Object.hasOwn(row, 'حالة التقاعد') ? readExcelCell(row, ['حالة التقاعد']) : undefined,
+          children: Object.hasOwn(row, 'أبناء الشهداء') ? readChildren(row['أبناء الشهداء']) : undefined,
           martyrdomDate: readExcelCell(row, [registerConfig.dateLabel, 'التاريخ']),
           martyrdomPlace: readExcelCell(row, [registerConfig.placeLabel, 'المكان']),
           wivesCount: activeRegister === 'martyrs' ? readExcelCell(row, ['عدد الزوجات']) : '',
           childrenCount: activeRegister === 'martyrs' ? readExcelCell(row, ['عدد الأطفال', 'عدد الاطفال']) : '',
-          wifeName: activeRegister === 'martyrs' ? readExcelCell(row, ['اسم الزوجة', 'اسم الزوجه']) : '',
+          wifeName: readExcelCell(row, ['اسم الزوجة', 'اسم الزوجه']),
+          phone: Object.hasOwn(row, 'رقم الهاتف') ? readExcelCell(row, ['رقم الهاتف']) : undefined,
+          medicalCommittee: Object.hasOwn(row, 'محال إلى اللجنة الطبية') ? readExcelCell(row, ['محال إلى اللجنة الطبية']) : undefined,
           disabilityPercentage: activeRegister === 'wounded' ? readExcelCell(row, ['نسبة العجز']) : '',
           injuryProofName: activeRegister === 'wounded' ? embeddedImage?.name || readExcelCell(row, ['تأييد الإصابة', 'تأييد الاصابة']) : '',
           injuryProofDataUrl: activeRegister === 'wounded' ? embeddedImage?.dataUrl || '' : '',
@@ -326,6 +375,14 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
           nextRecords[matchIndex] = {
             ...existing,
             ...importedRecord,
+            martyrType: importedRecord.martyrType || existing.martyrType || 'شهيد',
+            phone: importedRecord.phone ?? existing.phone ?? '',
+            medicalCommittee: importedRecord.medicalCommittee ?? existing.medicalCommittee ?? '',
+            wifeName: activeRegister === 'wounded' && !rows.some(row => Object.hasOwn(row, 'اسم الزوجة') || Object.hasOwn(row, 'اسم الزوجه')) ? existing.wifeName : importedRecord.wifeName,
+            motherName: importedRecord.motherName ?? existing.motherName ?? '',
+            retirementStatus: importedRecord.retirementStatus ?? existing.retirementStatus ?? '',
+            documents: importedRecord.documents ?? existing.documents ?? [],
+            children: importedRecord.children ?? existing.children ?? [],
             id: existing.id,
             createdAt: existing.createdAt,
             injuryProofName: importedRecord.injuryProofDataUrl ? importedRecord.injuryProofName : existing.injuryProofName || '',
@@ -382,11 +439,14 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
       id: existingRecord?.id || globalThis.crypto?.randomUUID?.() || `casualty_${Date.now()}`,
       sequence: form.sequence.trim(),
       martyrName: form.martyrName.trim(),
+      ...(activeRegister === 'martyrs' ? { retirementStatus: form.retirementStatus || '', motherName: (form.motherName || '').trim(), documents: form.documents || [], martyrType: form.martyrType || 'شهيد', children: readChildren(form.children) } : {}),
       martyrdomDate: form.martyrdomDate.trim(),
       martyrdomPlace: form.martyrdomPlace.trim(),
       wivesCount: form.wivesCount.trim(),
       childrenCount: form.childrenCount.trim(),
       wifeName: form.wifeName.trim(),
+      motherName: (form.motherName || '').trim(),
+      ...(activeRegister === 'wounded' ? { phone: (form.phone || '').trim(), medicalCommittee: form.medicalCommittee || '' } : {}),
       disabilityPercentage: form.disabilityPercentage.trim(),
       injuryProofName: form.injuryProofName,
       injuryProofDataUrl: form.injuryProofDataUrl,
@@ -543,6 +603,42 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
               </label>
               );
             })}
+            {activeRegister === 'martyrs' && <>
+              <label className="text-xs">حالة التقاعد
+                <select aria-label="حالة التقاعد" value={form.retirementStatus || ''} onChange={event => updateForm('retirementStatus', event.target.value)} className="w-full mt-1.5 p-3 rounded-xl text-xs border" style={inputStyle}>
+                  <option value="">اختر حالة التقاعد</option><option>محال إلى التقاعد</option><option>بذمّة الدائرة</option>
+                </select>
+              </label>
+              <div className="sm:col-span-2 lg:col-span-4"><MartyrDocuments documents={form.documents || []} onChange={documents => setForm(current => ({ ...current, documents }))} /></div>
+              <label className="text-xs">نوع الشهيد
+                <select aria-label="نوع الشهيد" value={form.martyrType || 'شهيد'} onChange={event => updateForm('martyrType', event.target.value)} className="w-full mt-1.5 p-3 rounded-xl text-xs border" style={inputStyle}>
+                  {['شهيد', 'متوفي', 'مفقود'].map(value => <option key={value}>{value}</option>)}
+                </select>
+              </label>
+              <details className="sm:col-span-2 lg:col-span-4 rounded-xl border border-neutral-600 p-3">
+                <summary className="cursor-pointer text-sm font-bold">أسماء أبناء الشهداء ({form.children?.length || 0})</summary>
+                <button type="button" onClick={() => setForm(current => ({ ...current, children: [...(current.children || []), { fullName: '', education: '', birthDate: '', studying: '', phone: '' }] }))} className="flex items-center gap-2 bg-blue-600 text-white rounded-xl px-4 py-2 my-3 text-xs"><Plus className="w-4 h-4" />إضافة ابن جديد</button>
+                {(form.children || []).map((child, index) => <fieldset key={index} className="border border-neutral-600 rounded-xl p-3 mt-3">
+                  <legend className="px-2 text-xs">الابن {index + 1}</legend>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    {([['fullName', 'الاسم الثلاثي'], ['education', 'التحصيل الدراسي'], ['birthDate', 'التولد / المواليد'], ['phone', 'رقم الهاتف']] as const).map(([key, label]) => <label key={key} className="text-xs">{label}
+                      <input aria-label={label + ' للابن ' + (index + 1)} required={key === 'fullName'} type={key === 'phone' ? 'tel' : 'text'} placeholder={key === 'birthDate' ? 'مثال: 2010 أو 1/1/2010' : label} value={child[key]} onChange={event => setForm(current => ({ ...current, children: (current.children || []).map((item, i) => i === index ? { ...item, [key]: event.target.value } : item) }))} className="w-full mt-1.5 p-3 rounded-xl text-xs border" style={inputStyle} />
+                    </label>)}
+                    <label className="text-xs">مستمر في الدراسة
+                      <select aria-label={'مستمر في الدراسة للابن ' + (index + 1)} value={child.studying} onChange={event => setForm(current => ({ ...current, children: (current.children || []).map((item, i) => i === index ? { ...item, studying: event.target.value } : item) }))} className="w-full mt-1.5 p-3 rounded-xl text-xs border" style={inputStyle}>
+                        <option value="">اختر (اختياري)</option><option>نعم</option><option>لا</option>
+                      </select>
+                    </label>
+                  </div>
+                  <button type="button" aria-label={'إزالة الابن ' + (index + 1)} onClick={() => setForm(current => ({ ...current, children: (current.children || []).filter((_, i) => i !== index) }))} className="mt-3 text-xs text-red-400">إزالة الابن</button>
+                </fieldset>)}
+              </details>
+            </>}
+            {activeRegister === 'wounded' && <label className="text-xs">محال إلى اللجنة الطبية
+              <select aria-label="محال إلى اللجنة الطبية" value={form.medicalCommittee || ''} onChange={event => updateForm('medicalCommittee', event.target.value)} className="w-full mt-1.5 p-3 rounded-xl text-xs border" style={inputStyle}>
+                <option value="">اختر</option><option>نعم</option><option>لا</option>
+              </select>
+            </label>}
             {activeRegister === 'wounded' && (
               <div className="sm:col-span-2 lg:col-span-3 rounded-xl border p-3" style={{ borderColor: isDarkMode ? '#3e3e3e' : '#cbd5e1' }}>
                 <div className="text-[11px] font-bold text-neutral-300 mb-2">تأييد الإصابة</div>
@@ -637,12 +733,19 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
                   ['عدد الزوجات', record.wivesCount],
                   ['عدد الأطفال', record.childrenCount],
                   ['اسم الزوجة', record.wifeName],
+                  ['نوع الشهيد', record.martyrType || 'شهيد'],
+                  ['اسم الأم', record.motherName || ''],
+                  ['حالة التقاعد', record.retirementStatus || ''],
                   ['الملاحظات', record.notes],
                 ] : [
                   ['التسلسل', record.sequence],
                   [registerConfig.nameLabel, record.martyrName],
                   [registerConfig.dateLabel, record.martyrdomDate],
                   [registerConfig.placeLabel, record.martyrdomPlace],
+                  ['رقم الهاتف', record.phone || ''],
+                  ['اسم الأم', record.motherName || ''],
+                  ['اسم الزوجة', record.wifeName],
+                  ['محال إلى اللجنة الطبية', record.medicalCommittee || ''],
                   ['نسبة العجز', record.disabilityPercentage],
                   ['تأييد الإصابة', record.injuryProofName],
                   ['الملاحظات', record.notes],
@@ -652,6 +755,13 @@ export const MartyrRecords: React.FC<MartyrRecordsProps> = ({ isDarkMode, onShow
                     <div className="text-[11px] font-bold break-words">{value || '—'}</div>
                   </div>
                 ))}
+                {activeRegister === 'martyrs' && Boolean(record.documents?.length) && <div className="col-span-2 md:col-span-4"><MartyrDocuments documents={record.documents || []} /></div>}
+                {activeRegister === 'martyrs' && readChildren(record.children).length > 0 && <div className="col-span-2 md:col-span-4 border border-neutral-600 rounded-xl p-3">
+                  <h3 className="text-sm font-bold mb-3">أسماء أبناء الشهداء</h3>
+                  {readChildren(record.children).map((child, index) => <div key={index} className="grid grid-cols-2 md:grid-cols-5 gap-3 border-t border-neutral-600 py-3 text-xs">
+                    {[['الاسم الثلاثي', child.fullName], ['التحصيل الدراسي', child.education], ['التولد / المواليد', child.birthDate], ['مستمر في الدراسة', child.studying], ['رقم الهاتف', child.phone]].map(([label, value]) => <div key={label}><div className="text-neutral-400 mb-1">{label}</div><div className="break-words">{value || '—'}</div></div>)}
+                  </div>)}
+                </div>}
                 {activeRegister === 'wounded' && record.injuryProofDataUrl && (
                   <div
                     className="col-span-2 md:col-span-4 rounded-xl border p-3 block"
